@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using LogyxDataHub.Data;
 
 var builder = WebApplication.CreateBuilder(args);
+var enableSwagger = builder.Configuration.GetValue<bool>("EnableSwagger", false);
 
 // Add services to the container.
 builder.Services.AddControllers();
@@ -62,21 +63,20 @@ var app = builder.Build();
 // Serve wwwroot so injected JS is available
 app.UseStaticFiles();
 
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwagger();
-    app.UseSwaggerUI(c =>
-    {
-        // Inject your custom JS (created below)
-        c.InjectJavascript("/swagger-ui/swagger-auth.js");
-    });
-}
-
 app.UseHttpsRedirection();
 
 app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+
+if (app.Environment.IsDevelopment() || enableSwagger)
+{
+    app.UseSwagger();
+    app.UseSwaggerUI(c =>
+    {
+        c.SwaggerEndpoint("/swagger/v1/swagger.json", "LogyxDataHub v1");
+    });
+}
 
 app.Run();
