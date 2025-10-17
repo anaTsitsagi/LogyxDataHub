@@ -1,0 +1,6 @@
+@LogyxDataHub_HostAddress = http://localhost:5113
+
+GET {{LogyxDataHub_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

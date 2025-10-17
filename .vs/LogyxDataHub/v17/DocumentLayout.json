@@ -1,0 +1,137 @@
+{
+  "Version": 1,
+  "WorkspaceRootPath": "C:\\Users\\anaci\\source\\repos\\LogyxDataHub\\",
+  "Documents": [
+    {
+      "AbsoluteMoniker": "D:0:0:{7DD44D49-1B3D-475C-992D-B37B29FF41A1}|LogyxDataHub.csproj|c:\\users\\anaci\\source\\repos\\logyxdatahub\\controllers\\hirowiringcontroller.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{7DD44D49-1B3D-475C-992D-B37B29FF41A1}|LogyxDataHub.csproj|solutionrelative:controllers\\hirowiringcontroller.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{7DD44D49-1B3D-475C-992D-B37B29FF41A1}|LogyxDataHub.csproj|c:\\users\\anaci\\source\\repos\\logyxdatahub\\models\\hirowiring.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{7DD44D49-1B3D-475C-992D-B37B29FF41A1}|LogyxDataHub.csproj|solutionrelative:models\\hirowiring.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{7DD44D49-1B3D-475C-992D-B37B29FF41A1}|LogyxDataHub.csproj|c:\\users\\anaci\\source\\repos\\logyxdatahub\\data\\logyxdbcontext.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{7DD44D49-1B3D-475C-992D-B37B29FF41A1}|LogyxDataHub.csproj|solutionrelative:data\\logyxdbcontext.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{7DD44D49-1B3D-475C-992D-B37B29FF41A1}|LogyxDataHub.csproj|c:\\users\\anaci\\source\\repos\\logyxdatahub\\program.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{7DD44D49-1B3D-475C-992D-B37B29FF41A1}|LogyxDataHub.csproj|solutionrelative:program.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{7DD44D49-1B3D-475C-992D-B37B29FF41A1}|LogyxDataHub.csproj|c:\\users\\anaci\\source\\repos\\logyxdatahub\\appsettings.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}",
+      "RelativeMoniker": "D:0:0:{7DD44D49-1B3D-475C-992D-B37B29FF41A1}|LogyxDataHub.csproj|solutionrelative:appsettings.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{7DD44D49-1B3D-475C-992D-B37B29FF41A1}|LogyxDataHub.csproj|c:\\users\\anaci\\source\\repos\\logyxdatahub\\wwwroot\\swagger-ui\\swagger-auth.js||{14D17961-FE51-464D-9111-C4AF11D7D99A}",
+      "RelativeMoniker": "D:0:0:{7DD44D49-1B3D-475C-992D-B37B29FF41A1}|LogyxDataHub.csproj|solutionrelative:wwwroot\\swagger-ui\\swagger-auth.js||{14D17961-FE51-464D-9111-C4AF11D7D99A}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{7DD44D49-1B3D-475C-992D-B37B29FF41A1}|LogyxDataHub.csproj|c:\\users\\anaci\\source\\repos\\logyxdatahub\\properties\\launchsettings.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}",
+      "RelativeMoniker": "D:0:0:{7DD44D49-1B3D-475C-992D-B37B29FF41A1}|LogyxDataHub.csproj|solutionrelative:properties\\launchsettings.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}"
+    }
+  ],
+  "DocumentGroupContainers": [
+    {
+      "Orientation": 0,
+      "VerticalTabListWidth": 256,
+      "DocumentGroups": [
+        {
+          "DockedWidth": 200,
+          "SelectedChildIndex": 5,
+          "Children": [
+            {
+              "$type": "Bookmark",
+              "Name": "ST:0:0:{cce594b6-0c39-4442-ba28-10c64ac7e89f}"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 1,
+              "Title": "HiroWiring.cs",
+              "DocumentMoniker": "C:\\Users\\anaci\\source\\repos\\LogyxDataHub\\Models\\HiroWiring.cs",
+              "RelativeDocumentMoniker": "Models\\HiroWiring.cs",
+              "ToolTip": "C:\\Users\\anaci\\source\\repos\\LogyxDataHub\\Models\\HiroWiring.cs",
+              "RelativeToolTip": "Models\\HiroWiring.cs",
+              "ViewState": "AgIAAAoAAAAAAAAAAAAQwCQAAAAtAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-10-17T00:14:09.075Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 3,
+              "Title": "Program.cs",
+              "DocumentMoniker": "C:\\Users\\anaci\\source\\repos\\LogyxDataHub\\Program.cs",
+              "RelativeDocumentMoniker": "Program.cs",
+              "ToolTip": "C:\\Users\\anaci\\source\\repos\\LogyxDataHub\\Program.cs",
+              "RelativeToolTip": "Program.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAkAAAAhAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-10-16T23:01:06.246Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 2,
+              "Title": "LogyxDbContext.cs",
+              "DocumentMoniker": "C:\\Users\\anaci\\source\\repos\\LogyxDataHub\\Data\\LogyxDbContext.cs",
+              "RelativeDocumentMoniker": "Data\\LogyxDbContext.cs",
+              "ToolTip": "C:\\Users\\anaci\\source\\repos\\LogyxDataHub\\Data\\LogyxDbContext.cs",
+              "RelativeToolTip": "Data\\LogyxDbContext.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAsAAAABAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-10-16T22:58:36.112Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 5,
+              "Title": "swagger-auth.js",
+              "DocumentMoniker": "C:\\Users\\anaci\\source\\repos\\LogyxDataHub\\wwwroot\\swagger-ui\\swagger-auth.js",
+              "RelativeDocumentMoniker": "wwwroot\\swagger-ui\\swagger-auth.js",
+              "ToolTip": "C:\\Users\\anaci\\source\\repos\\LogyxDataHub\\wwwroot\\swagger-ui\\swagger-auth.js",
+              "RelativeToolTip": "wwwroot\\swagger-ui\\swagger-auth.js",
+              "ViewState": "AgIAACsAAAAAAAAAAAAQwBAAAAA/AAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001646|",
+              "WhenOpened": "2025-10-17T00:02:12.899Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 0,
+              "Title": "HiroWiringController.cs",
+              "DocumentMoniker": "C:\\Users\\anaci\\source\\repos\\LogyxDataHub\\Controllers\\HiroWiringController.cs",
+              "RelativeDocumentMoniker": "Controllers\\HiroWiringController.cs",
+              "ToolTip": "C:\\Users\\anaci\\source\\repos\\LogyxDataHub\\Controllers\\HiroWiringController.cs",
+              "RelativeToolTip": "Controllers\\HiroWiringController.cs",
+              "ViewState": "AgIAAGsAAAAAAAAAAAAQwHQAAAAkAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-10-17T09:16:55.982Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 4,
+              "Title": "appsettings.json",
+              "DocumentMoniker": "C:\\Users\\anaci\\source\\repos\\LogyxDataHub\\appsettings.json",
+              "RelativeDocumentMoniker": "appsettings.json",
+              "ToolTip": "C:\\Users\\anaci\\source\\repos\\LogyxDataHub\\appsettings.json",
+              "RelativeToolTip": "appsettings.json",
+              "ViewState": "AgIAAAMAAAAAAAAAAAAAABMAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001642|",
+              "WhenOpened": "2025-10-16T22:57:54.131Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 6,
+              "Title": "launchSettings.json",
+              "DocumentMoniker": "C:\\Users\\anaci\\source\\repos\\LogyxDataHub\\Properties\\launchSettings.json",
+              "RelativeDocumentMoniker": "Properties\\launchSettings.json",
+              "ToolTip": "C:\\Users\\anaci\\source\\repos\\LogyxDataHub\\Properties\\launchSettings.json",
+              "RelativeToolTip": "Properties\\launchSettings.json",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAwAAAAfAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001642|",
+              "WhenOpened": "2025-10-16T23:32:08.579Z"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
