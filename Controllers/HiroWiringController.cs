@@ -135,31 +135,37 @@ namespace LogyxDataHub.Controllers
 
         [HttpGet("merged-journal-entries")]
         public async Task<IActionResult> GetMergedJournalEntries(
-    [FromHeader(Name = "Authorization")] string? authorization,
-    [FromHeader(Name = "X-Identity")] string? headerIdentity,
-    [FromQuery(Name = "debit")] List<string>? debit,   // optional: one or more debit accounts
-    [FromQuery(Name = "credit")] List<string>? credit, // optional: one or more credit accounts
-    [FromQuery] DateTime? fromDate,
-    [FromQuery] DateTime? toDate,
-    [FromQuery] string? currency, // CSV
-    [FromQuery] int page = 1,
-    [FromQuery] int pageSize = 100)
+            [FromHeader(Name = "Authorization")] string? authorization,
+            [FromHeader(Name = "X-Identity")] string? headerIdentity,
+            [FromQuery(Name = "debit")] string? debitAccount,   // mandatory single debit account
+            [FromQuery(Name = "credit")] string? creditAccount, // mandatory single credit account
+            [FromQuery] DateTime? fromDate,
+            [FromQuery] DateTime? toDate,
+            [FromQuery] string? currency, // CSV
+            [FromQuery] int page = 1,
+            [FromQuery] int pageSize = 100)
         {
             if (string.IsNullOrWhiteSpace(authorization) || !authorization.StartsWith("Bearer "))
                 return Unauthorized();
             if (string.IsNullOrWhiteSpace(headerIdentity)) return BadRequest("Missing X-Identity header.");
+
+            // Both accounts are mandatory for merged results
+            if (string.IsNullOrWhiteSpace(debitAccount) || string.IsNullOrWhiteSpace(creditAccount))
+                return BadRequest("Both 'debit' and 'credit' query parameters are required to return merged entries.");
+
             if (!fromDate.HasValue || !toDate.HasValue) return BadRequest("fromDate and toDate are required.");
 
             page = Math.Max(1, page);
             pageSize = Math.Clamp(pageSize, 1, 500);
 
+            var debitAcct = debitAccount!.Trim();
+            var creditAcct = creditAccount!.Trim();
+            if (string.IsNullOrEmpty(debitAcct) || string.IsNullOrEmpty(creditAcct))
+                return BadRequest("'debit' and 'credit' cannot be empty.");
+
             var currencySet = (currency ?? string.Empty)
                 .Split(',', StringSplitOptions.RemoveEmptyEntries)
                 .Select(s => s.Trim()).ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-            // normalize debit/credit lists
-            var debitList = debit?.Where(s => !string.IsNullOrWhiteSpace(s)).Select(s => s.Trim()).ToHashSet(StringComparer.OrdinalIgnoreCase);
-            var creditList = credit?.Where(s => !string.IsNullOrWhiteSpace(s)).Select(s => s.Trim()).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
             // date boundaries: fromDate inclusive, toDate inclusive (use exclusive end)
             var fromDay = fromDate.Value.Date;
@@ -180,17 +186,21 @@ namespace LogyxDataHub.Controllers
                     .Where(x => x.OperationDate.HasValue && x.OperationDate.Value >= fromDay && x.OperationDate.Value <= toDayExclusive);
                 baseQuery = ApplyCurrencyFilter(baseQuery);
 
-                // Apply debit/credit filtering:
-                // - if both lists provided include rows that match either side (credit OR debit)
-                // - if only one provided apply that filter
-                if ((debitList != null && debitList.Count > 0) || (creditList != null && creditList.Count > 0))
-                {
-                    baseQuery = baseQuery.Where(x =>
-                        (debitList != null && debitList.Count > 0 && (debitList.Contains(x.Debet ?? string.Empty) || debitList.Contains(x.DebetSub ?? string.Empty)))
-                        ||
-                        (creditList != null && creditList.Count > 0 && (creditList.Contains(x.Credit ?? string.Empty) || creditList.Contains(x.CreditSub ?? string.Empty)))
-                    );
-                }
+                // Require both accounts to be present in the entry (debit AND credit).
+                // Include reverse pairing so caller can pass accounts in any order and still get the pair.
+                baseQuery = baseQuery.Where(x =>
+                    (
+                        ((x.Debet ?? string.Empty) == debitAcct || (x.DebetSub ?? string.Empty) == debitAcct)
+                        &&
+                        ((x.Credit ?? string.Empty) == creditAcct || (x.CreditSub ?? string.Empty) == creditAcct)
+                    )
+                    ||
+                    (
+                        ((x.Debet ?? string.Empty) == creditAcct || (x.DebetSub ?? string.Empty) == creditAcct)
+                        &&
+                        ((x.Credit ?? string.Empty) == debitAcct || (x.CreditSub ?? string.Empty) == debitAcct)
+                    )
+                );
 
                 // Total count for pagination metadata (server-side COUNT)
                 var totalCount = await baseQuery.CountAsync();
@@ -239,7 +249,7 @@ namespace LogyxDataHub.Controllers
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error in GetJournalEntries");
+                _logger.LogError(ex, "Error in GetMergedJournalEntries");
                 return StatusCode(500, "Failed to read data from HIRO_WIRING.");
             }
         }
