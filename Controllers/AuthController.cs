@@ -38,7 +38,7 @@ namespace LogyxDataHub.Controllers
             var claims = new[]
             {
                 new Claim(JwtRegisteredClaimNames.Sub, cred.Username),
-                new Claim("tenant", cred.Tenant ?? "dev-tenant"),
+                new Claim("Identity", cred.Identity ?? "dev-identity"),
                 new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
             };
 
@@ -64,8 +64,7 @@ namespace LogyxDataHub.Controllers
         {
             public string? Username { get; set; }
             public string? Password { get; set; }
-            // optional: include tenant to embed into token
-            public string? Tenant { get; set; }
+            public string? Identity { get; set; }
         }
     }
 }
