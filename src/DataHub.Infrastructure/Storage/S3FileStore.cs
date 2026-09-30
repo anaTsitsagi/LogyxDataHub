@@ -122,6 +122,12 @@ public sealed class S3FileStore : IFileStore, IDisposable
         return new S3RangeReadStream(_s3, Bucket, key, metadata.ContentLength);
     }
 
+    public async Task DownloadAsync(string key, Stream destination, CancellationToken ct)
+    {
+        using var response = await _s3.GetObjectAsync(Bucket, key, ct);
+        await response.ResponseStream.CopyToAsync(destination, 1024 * 1024, ct);
+    }
+
     public void Dispose() => _s3.Dispose();
 }
 

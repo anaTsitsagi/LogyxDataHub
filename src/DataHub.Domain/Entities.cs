@@ -88,8 +88,13 @@ public class ProcessingJob
     /// <summary>Internal diagnostic detail; never shown to the customer.</summary>
     public string? ErrorDetail { get; set; }
     public Guid? DatasetId { get; set; }
+
+    /// <summary>When the job was last (re)queued; the recovery sweep re-publishes jobs left queued for too long.</summary>
     public DateTimeOffset QueuedAt { get; set; }
     public DateTimeOffset? StartedAt { get; set; }
+
+    /// <summary>Refreshed by the worker while processing; a stale value means the worker died.</summary>
+    public DateTimeOffset? HeartbeatAt { get; set; }
     public DateTimeOffset? FinishedAt { get; set; }
 }
 

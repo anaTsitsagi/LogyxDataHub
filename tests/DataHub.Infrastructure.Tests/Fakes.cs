@@ -61,4 +61,13 @@ public sealed class InMemoryFileStore : IFileStore
     }
 
     public Task<Stream> OpenReadAsync(string key, CancellationToken ct) => Task.FromResult<Stream>(new MemoryStream(Objects[key], writable: false));
+
+    /// <summary>When set, downloads throw it (simulates S3 being unavailable).</summary>
+    public Exception? DownloadFailure { get; set; }
+
+    public async Task DownloadAsync(string key, Stream destination, CancellationToken ct)
+    {
+        if (DownloadFailure is not null) throw DownloadFailure;
+        await destination.WriteAsync(Objects[key], ct);
+    }
 }

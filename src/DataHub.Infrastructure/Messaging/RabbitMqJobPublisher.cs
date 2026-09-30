@@ -20,6 +20,7 @@ public sealed class RabbitMqOptions
 
     /// <summary>"quorum" (replicated, recommended) or "classic".</summary>
     public string QueueType { get; set; } = "quorum";
+    public int DeliveryLimit { get; set; } = 10;
     public string ClientName { get; set; } = "datahub";
 }
 
@@ -34,12 +35,14 @@ public static class RabbitMqTopology
         await channel.QueueBindAsync(o.DeadLetterQueue, o.DeadLetterExchange, "", cancellationToken: ct);
 
         await channel.ExchangeDeclareAsync(o.Exchange, ExchangeType.Direct, durable: true, cancellationToken: ct);
-        await channel.QueueDeclareAsync(o.Queue, durable: true, exclusive: false, autoDelete: false,
-            arguments: new Dictionary<string, object?>
-            {
-                ["x-queue-type"] = o.QueueType,
-                ["x-dead-letter-exchange"] = o.DeadLetterExchange,
-            }, cancellationToken: ct);
+        var arguments = new Dictionary<string, object?>
+        {
+            ["x-queue-type"] = o.QueueType,
+            ["x-dead-letter-exchange"] = o.DeadLetterExchange,
+        };
+        // A message that keeps crashing the worker is dead-lettered instead of redelivered forever.
+        if (o.QueueType == "quorum") arguments["x-delivery-limit"] = o.DeliveryLimit;
+        await channel.QueueDeclareAsync(o.Queue, durable: true, exclusive: false, autoDelete: false, arguments, cancellationToken: ct);
         await channel.QueueBindAsync(o.Queue, o.Exchange, o.RoutingKey, cancellationToken: ct);
     }
 }

@@ -1,3 +1,4 @@
+using DataHub.Application;
 using DataHub.Domain;
 
 namespace DataHub.Web.Portal;
@@ -29,7 +30,11 @@ public static class PortalText
 
     private static readonly Bilingual Unknown = new("მოხდა შეცდომა. სცადეთ მოგვიანებით.", "Something went wrong. Please try again later.");
 
-    public static Bilingual Error(string? code) => code is not null && Errors.TryGetValue(code, out var text) ? text : Unknown;
+    public static Bilingual Error(string? code)
+    {
+        if (code is not null && Errors.TryGetValue(code, out var text)) return text;
+        return Messages.TryProcessingFailure(code, out var reason) ? new(reason.Ka, reason.En) : Unknown;
+    }
 
     public static Bilingual Job(JobStatus? status) => status switch
     {

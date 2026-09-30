@@ -138,6 +138,10 @@ public sealed class SqlDatasetStore(DataHubDbContext db, ILogger<SqlDatasetStore
         await db.Datasets.Where(d => d.Id == datasetId && d.Status == DatasetStatus.Staging)
             .ExecuteUpdateAsync(s => s.SetProperty(d => d.Status, DatasetStatus.Failed), ct);
 
+    public async Task AbandonStagingAsync(Guid processingJobId, CancellationToken ct) =>
+        await db.Datasets.Where(d => d.ProcessingJobId == processingJobId && d.Status == DatasetStatus.Staging)
+            .ExecuteUpdateAsync(s => s.SetProperty(d => d.Status, DatasetStatus.Failed), ct);
+
     public async Task<long> PurgeInactiveAsync(CancellationToken ct)
     {
         var inactive = await db.Datasets

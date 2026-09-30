@@ -162,8 +162,7 @@ public sealed partial class UploadService(
         // The job row is committed first. If publishing fails, the worker's re-queue sweep picks it up.
         try
         {
-            await publisher.PublishAsync(new ProcessingJobMessage(job.Id, upload.Id, upload.CompanyId, customer.TenantId,
-                upload.Type, upload.S3Bucket, upload.S3Key, upload.SizeBytes, upload.Sha256,
+            await publisher.PublishAsync(ProcessingJobMessage.For(job, upload, customer.TenantId,
                 Activity.Current?.TraceId.ToString() ?? job.Id.ToString("N")), ct);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)

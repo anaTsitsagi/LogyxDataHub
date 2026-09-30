@@ -38,6 +38,9 @@ public interface IFileStore
 
     /// <summary>Opens a seekable read stream (served with ranged reads, so large files are never fully downloaded).</summary>
     Task<Stream> OpenReadAsync(string key, CancellationToken ct);
+
+    /// <summary>Streams the whole object into <paramref name="destination"/> in a single sequential download.</summary>
+    Task DownloadAsync(string key, Stream destination, CancellationToken ct);
 }
 
 /// <summary>
@@ -53,7 +56,12 @@ public sealed record ProcessingJobMessage(
     string S3Key,
     long SizeBytes,
     string? Sha256,
-    string CorrelationId);
+    string CorrelationId)
+{
+    public static ProcessingJobMessage For(ProcessingJob job, Upload upload, Guid tenantId, string correlationId) =>
+        new(job.Id, upload.Id, upload.CompanyId, tenantId, upload.Type, upload.S3Bucket, upload.S3Key,
+            upload.SizeBytes, upload.Sha256, correlationId);
+}
 
 public interface IJobPublisher
 {

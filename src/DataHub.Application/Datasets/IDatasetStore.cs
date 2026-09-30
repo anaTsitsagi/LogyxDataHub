@@ -26,6 +26,9 @@ public interface IDatasetStore
 
     Task MarkFailedAsync(Guid datasetId, CancellationToken ct);
 
+    /// <summary>Marks staging datasets left behind by an interrupted attempt of this job as failed.</summary>
+    Task AbandonStagingAsync(Guid processingJobId, CancellationToken ct);
+
     /// <summary>Deletes rows of superseded/failed datasets in batches. Returns the number of rows deleted.</summary>
     Task<long> PurgeInactiveAsync(CancellationToken ct);
 }
