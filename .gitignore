@@ -487,3 +487,6 @@ $RECYCLE.BIN/
 .serena/
 *.stackdump
 .claude/settings.local.json
+
+# Local test environment artefacts (SMS outbox etc.)
+.local/
