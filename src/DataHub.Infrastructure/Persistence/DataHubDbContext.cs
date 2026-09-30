@@ -1,9 +1,10 @@
+using DataHub.Application;
 using DataHub.Domain;
 using Microsoft.EntityFrameworkCore;
 
 namespace DataHub.Infrastructure.Persistence;
 
-public class DataHubDbContext(DbContextOptions<DataHubDbContext> options) : DbContext(options)
+public class DataHubDbContext(DbContextOptions<DataHubDbContext> options) : DbContext(options), IDataHubDb
 {
     public const string Schema = "datahub";
 

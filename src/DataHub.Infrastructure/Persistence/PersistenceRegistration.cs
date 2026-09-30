@@ -1,3 +1,4 @@
+using DataHub.Application;
 using DataHub.Application.Datasets;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Design;
@@ -26,6 +27,7 @@ public static class PersistenceRegistration
             throw new InvalidOperationException($"Connection string '{DatabaseOptions.ConnectionStringName}' is not configured.");
 
         services.AddDbContext<DataHubDbContext>(o => Configure(o, options));
+        services.AddScoped<IDataHubDb>(sp => sp.GetRequiredService<DataHubDbContext>());
         services.AddScoped<IDatasetStore, SqlDatasetStore>();
         services.AddSingleton(TimeProvider.System);
         return services;
