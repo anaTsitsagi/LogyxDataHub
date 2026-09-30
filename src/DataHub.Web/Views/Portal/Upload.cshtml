@@ -1,0 +1,53 @@
+@model UploadViewModel
+@{ ViewData["Title"] = "ატვირთვა"; }
+<section class="card">
+    <p class="step">ნაბიჯი 3 / 3 <span class="en">Step 3 of 3</span></p>
+    <h1>ფაილის ატვირთვა <span class="en">Upload your file</span></h1>
+
+    @if (Model.Status.JobStatus == JobStatus.Failed)
+    {
+        var err = PortalText.Error(Model.Status.ErrorCode);
+        <div class="alert" role="alert">
+            წინა ფაილის დამუშავება ვერ მოხერხდა: @err.Ka
+            <span class="en block">The previous file could not be processed: @err.En</span>
+        </div>
+    }
+    else if (Model.Status.JobStatus == JobStatus.Succeeded)
+    {
+        <div class="note">
+            მონაცემები უკვე მიღებულია. ახალი ფაილის ატვირთვა ჩაანაცვლებს არსებულს.
+            <span class="en block">Your data has already been received. A new upload will replace it.</span>
+        </div>
+    }
+
+    <form id="upload" class="form" data-max-size="@Model.MaxSizeBytes">
+        <fieldset class="choice">
+            <legend>რას ტვირთავთ? <span class="en">What are you uploading?</span></legend>
+            <label class="choice__item">
+                <input type="radio" name="type" value="orisDatabase" data-accept=".zip" checked />
+                <span><strong>ORIS-ის ბაზა</strong> (ZIP, .tps ფაილებით)
+                    <span class="en block">ORIS database (ZIP with .tps files)</span></span>
+            </label>
+            <label class="choice__item @(Model.CsvEnabled ? "" : "is-disabled")">
+                <input type="radio" name="type" value="orisEntriesCsv" data-accept=".csv" @(Model.CsvEnabled ? "" : "disabled") />
+                <span><strong>ORIS-ის გატარებების ფაილი</strong> (CSV) @if (!Model.CsvEnabled) { <em class="soon">მალე / soon</em> }
+                    <span class="en block">ORIS entries sheet (CSV)</span></span>
+            </label>
+        </fieldset>
+
+        <label for="file">ფაილი <span class="en">File</span> <span class="muted">(მაქს. / max 2 GB)</span></label>
+        <input id="file" name="file" type="file" accept=".zip" required />
+
+        <div id="progress" class="progress" hidden>
+            <div class="progress__bar"><span id="progress-fill"></span></div>
+            <p id="progress-text" class="muted" aria-live="polite"></p>
+        </div>
+        <div id="upload-error" class="alert" role="alert" hidden></div>
+
+        <button type="submit" id="upload-button" class="btn">ატვირთვა <span class="en">Upload</span></button>
+    </form>
+</section>
+
+@section Scripts {
+    <script src="~/js/upload.js" asp-append-version="true"></script>
+}

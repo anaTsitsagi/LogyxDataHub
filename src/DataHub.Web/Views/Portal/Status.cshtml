@@ -1,0 +1,33 @@
+@model StatusViewModel
+@{
+    ViewData["Title"] = "სტატუსი";
+    var text = PortalText.Job(Model.Status.JobStatus);
+}
+<section class="card">
+    <h1>დამუშავების სტატუსი <span class="en">Processing status</span></h1>
+    @if (Model.Status.FileName is not null)
+    {
+        <p class="muted">@Model.Status.FileName</p>
+    }
+    <div id="status" class="status status--@(Model.Status.JobStatus?.ToString().ToLowerInvariant() ?? "none")"
+         data-poll="@(Model.Status.JobStatus is JobStatus.Queued or JobStatus.Processing ? "true" : "false")">
+        <p id="status-ka">@text.Ka</p>
+        <p id="status-en" class="en">@text.En</p>
+        <p id="status-error" class="alert" @(Model.Status.JobStatus == JobStatus.Failed ? "" : "hidden")>
+            @if (Model.Status.JobStatus == JobStatus.Failed)
+            {
+                var err = PortalText.Error(Model.Status.ErrorCode);
+                @err.Ka <span class="en block">@err.En</span>
+            }
+        </p>
+    </div>
+    <p class="muted">
+        შეგიძლიათ დახუროთ ეს გვერდი — დამუშავების შედეგს ბანკი ავტომატურად მიიღებს.
+        <span class="en block">You can close this page — the bank receives the result automatically.</span>
+    </p>
+    <p><a class="btn btn--ghost" href="/upload">ახალი ფაილის ატვირთვა <span class="en">Upload another file</span></a></p>
+</section>
+
+@section Scripts {
+    <script src="~/js/status.js" asp-append-version="true"></script>
+}
