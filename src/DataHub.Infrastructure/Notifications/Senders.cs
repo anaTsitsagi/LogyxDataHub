@@ -62,7 +62,8 @@ public sealed class OutboxSmsSender(IOptions<SmsOptions> options, TimeProvider c
     {
         var dir = options.Value.OutboxDirectory;
         Directory.CreateDirectory(dir);
-        var file = Path.Combine(dir, $"{clock.GetUtcNow():yyyyMMdd-HHmmss-fff}-{phone.TrimStart('+')}.txt");
+        // The file name is logged, so it carries no phone number; the recipient is inside the file.
+        var file = Path.Combine(dir, $"{clock.GetUtcNow():yyyyMMdd-HHmmss-fff}-{Guid.NewGuid():N}.txt");
         await File.WriteAllTextAsync(file, $"To: {phone}\n\n{text}\n", ct);
         logger.LogInformation("SMS written to outbox {File}", Path.GetFileName(file));
     }

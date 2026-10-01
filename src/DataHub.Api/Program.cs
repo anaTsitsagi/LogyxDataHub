@@ -4,12 +4,14 @@ using DataHub.Api;
 using DataHub.Api.Auth;
 using DataHub.Api.Errors;
 using DataHub.Application;
+using DataHub.Hosting;
 using DataHub.Infrastructure;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.OpenApi;
 
 var builder = WebApplication.CreateBuilder(args);
 
+builder.AddDataHubObservability("datahub-api");
 builder.Services.AddDataHubApplication();
 builder.Services.AddDataHubInfrastructure(builder.Configuration);
 builder.Services.Configure<ApiAuthOptions>(builder.Configuration.GetSection(ApiAuthOptions.Section));
@@ -41,6 +43,11 @@ builder.Services.AddSwaggerGen(o =>
 
 var app = builder.Build();
 
+// Report calls name their tenant in X-Tenant-Id; add it to every log line of the request.
+Func<HttpContext, Guid?> tenant = ctx =>
+    Guid.TryParse(ctx.Request.Headers["X-Tenant-Id"], out var id) ? id : null;
+app.UseDataHubRequestLogging(tenant);
+app.UseTenantLogContext(tenant);
 app.UseExceptionHandler();
 app.UseStatusCodePages();
 app.UseSwagger();

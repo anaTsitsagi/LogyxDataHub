@@ -20,6 +20,7 @@ public sealed class ApiFactory(SqlDatabaseFixture db) : WebApplicationFactory<Pr
     {
         builder.UseEnvironment("Local");
         builder.UseSetting("ConnectionStrings:DataHub", db.Options.ConnectionString);
+        builder.UseSetting("Otlp:Endpoint", ""); // never send test telemetry to a local Seq
         builder.ConfigureServices(services =>
         {
             services.RemoveAll<ISmsSender>().AddSingleton<ISmsSender>(Sms);

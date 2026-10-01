@@ -29,4 +29,8 @@ public static class CustomerSession
         Guid.Parse(user.FindFirstValue(CompanyClaim)!),
         Guid.Parse(user.FindFirstValue(TenantClaim)!),
         user.Identity?.Name ?? "");
+
+    /// <summary>The signed-in customer's tenant, or null before verification.</summary>
+    public static Guid? TenantId(this ClaimsPrincipal user) =>
+        Guid.TryParse(user.FindFirstValue(TenantClaim), out var id) ? id : null;
 }

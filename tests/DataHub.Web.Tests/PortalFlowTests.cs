@@ -31,6 +31,7 @@ public sealed class PortalFactory(SqlDatabaseFixture db) : WebApplicationFactory
         builder.UseEnvironment("Local");
         builder.UseSetting("ConnectionStrings:DataHub", db.Options.ConnectionString);
         builder.UseSetting("Uploads:ChunkSizeBytes", Chunk.ToString());
+        builder.UseSetting("Otlp:Endpoint", ""); // never send test telemetry to a local Seq
         builder.ConfigureServices(services =>
         {
             services.RemoveAll<ISmsSender>().AddSingleton<ISmsSender>(Sms);

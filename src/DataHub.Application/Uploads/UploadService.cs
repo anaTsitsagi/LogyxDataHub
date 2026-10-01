@@ -170,6 +170,9 @@ public sealed partial class UploadService(
             logger.LogError(ex, "Publishing job {JobId} failed; it will be re-queued by the sweep", job.Id);
         }
 
+        var typeTag = new KeyValuePair<string, object?>("upload.type", upload.Type.ToString());
+        DataHubTelemetry.UploadsCompleted.Add(1, typeTag);
+        DataHubTelemetry.UploadedBytes.Add(upload.SizeBytes, typeTag);
         logger.LogInformation("Upload {UploadId} completed; job {JobId} queued", upload.Id, job.Id);
         return job.Id;
     }

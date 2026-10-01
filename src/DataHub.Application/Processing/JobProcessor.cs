@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Security.Cryptography;
 using DataHub.Application.Datasets;
 using DataHub.Domain;
@@ -36,12 +37,48 @@ public sealed class JobProcessor(
             ["TenantId"] = message.TenantId,
             ["CorrelationId"] = message.CorrelationId,
         });
+        using var activity = DataHubTelemetry.Source.StartActivity("process job");
+        activity?.SetTag("datahub.job_id", message.JobId);
+        activity?.SetTag("datahub.tenant_id", message.TenantId);
 
         if (!await TryClaimAsync(message.JobId, ct))
         {
             logger.LogInformation("Job {JobId} skipped: already finished or being processed", message.JobId);
+            activity?.SetTag("datahub.job_outcome", "skipped");
             return JobOutcome.Skipped;
         }
+
+        long started = clock.GetTimestamp();
+        var outcome = JobOutcome.RetryScheduled; // also the outcome of an unexpected exception or a shutdown hand-back
+        try
+        {
+            outcome = await ProcessClaimedAsync(message, ct);
+            return outcome;
+        }
+        finally
+        {
+            var tags = new TagList { { "outcome", Tag(outcome) } };
+            if (_errorCode is not null) tags.Add("error.code", _errorCode);
+            DataHubTelemetry.JobsFinished.Add(1, tags);
+            DataHubTelemetry.JobDuration.Record(clock.GetElapsedTime(started).TotalSeconds, tags);
+            activity?.SetTag("datahub.job_outcome", Tag(outcome));
+            if (_errorCode is not null) activity?.SetStatus(ActivityStatusCode.Error, _errorCode);
+        }
+    }
+
+    /// <summary>Error code of a failed job, for metrics (the processor is created per job).</summary>
+    private string? _errorCode;
+
+    private static string Tag(JobOutcome outcome) => outcome switch
+    {
+        JobOutcome.Succeeded => "succeeded",
+        JobOutcome.Failed => "failed",
+        JobOutcome.RetryScheduled => "retry_scheduled",
+        _ => "skipped",
+    };
+
+    private async Task<JobOutcome> ProcessClaimedAsync(ProcessingJobMessage message, CancellationToken ct)
+    {
 
         // The database, not the message, is the source of truth for what to process.
         var job = await db.ProcessingJobs.SingleAsync(j => j.Id == message.JobId, ct);
@@ -61,6 +98,7 @@ public sealed class JobProcessor(
 
             datasetId = await datasets.CreateStagingAsync(job.CompanyId, job.Id, ct);
             var result = await processor.ImportAsync(file, datasetId.Value, ct);
+            DataHubTelemetry.JournalLinesImported.Add(result.JournalLines);
             bool activated = await datasets.ActivateAsync(datasetId.Value, ct);
 
             await heartbeat.DisposeAsync();
@@ -166,6 +204,7 @@ public sealed class JobProcessor(
         }
 
         code ??= ProcessingErrors.Failed;
+        _errorCode = code;
         await FailAsync(job, upload, code, Describe(ex), ct);
         if (code == ProcessingErrors.Failed)
             logger.LogError(ex, "Job {JobId} failed after {Attempts} attempts", job.Id, job.Attempts);

@@ -9,6 +9,7 @@ public sealed class MaintenanceService(
     IServiceScopeFactory scopes,
     IOptions<ProcessingOptions> options,
     TimeProvider clock,
+    WorkerHealth health,
     ILogger<MaintenanceService> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -18,6 +19,7 @@ public sealed class MaintenanceService(
         using var timer = new PeriodicTimer(o.SweepInterval, clock);
         do
         {
+            health.MaintenanceRan();
             try
             {
                 await using var scope = scopes.CreateAsyncScope();

@@ -2,6 +2,7 @@ using DataHub.Application;
 using DataHub.Application.Datasets;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Design;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace DataHub.Infrastructure.Persistence;
@@ -17,6 +18,14 @@ public sealed class DatabaseOptions
     /// Lower it (e.g. 130 for 2016) if TBC's server is older.
     /// </summary>
     public int CompatibilityLevel { get; set; } = 150;
+
+    /// <summary>The <c>Database</c> section plus <c>ConnectionStrings:DataHub</c>.</summary>
+    public static DatabaseOptions From(IConfiguration configuration)
+    {
+        var options = configuration.GetSection("Database").Get<DatabaseOptions>() ?? new DatabaseOptions();
+        options.ConnectionString = configuration.GetConnectionString(ConnectionStringName) ?? options.ConnectionString;
+        return options;
+    }
 }
 
 public static class PersistenceRegistration
@@ -29,6 +38,7 @@ public static class PersistenceRegistration
         services.AddDbContext<DataHubDbContext>(o => Configure(o, options));
         services.AddScoped<IDataHubDb>(sp => sp.GetRequiredService<DataHubDbContext>());
         services.AddScoped<IDatasetStore, SqlDatasetStore>();
+        services.AddScoped<DatabaseMigrator>();
         services.AddSingleton(TimeProvider.System);
         return services;
     }
