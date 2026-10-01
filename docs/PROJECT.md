@@ -1,6 +1,6 @@
 # Logyx DataHub for TBC Bank: project reference
 
-_Last updated: 2026-10-01. Steps 0–5a are merged into `main` (PR #1). Step 6 is in progress on branch `feature/step6-observability`._
+_Last updated: 2026-10-01. Steps 0–5a are merged into `main` (PR #1). Step 6 is done on `feature/step6-observability`, in review as PR #2._
 
 **This file is the single reference for the project:** context, requirements, every decision, architecture, status per step, how to run it, open items and lessons learned.
 - Read it at the start of any work session.
@@ -398,12 +398,12 @@ CLAUDE.md   points Claude Code sessions to this file
 | 4 | Worker | **Done** | `41af8c0` |
 | 5 | TBC report APIs | **Done** | `e309f5e` |
 | 5a | Local run without Docker + Swagger for local testing | **Done**, verified live with HIRO | `4567109`, `1e6c3b1` |
-| 6 | Cross-cutting: OTLP logging, telemetry, Migrator, Dockerfiles | **In progress**: code, tests, image run test and Seq live check done; PR pending | on `feature/step6-observability` |
+| 6 | Cross-cutting: OTLP logging, telemetry, Migrator, Dockerfiles | **Done, in review**: PR #2 | on `feature/step6-observability` |
 | 7 | Local k3s test environment + Helm chart | Planned | – |
 | 8 | Load test + resource estimate | Planned | – |
 | 9 | Release packaging + SFTP upload | Planned | – |
 
-**Resume point (2026-10-01):** step 6 is in progress on `feature/step6-observability` (from `main` after PR #1 was merged). All step 6 code is written and tested: **129 tests passing** (Oris 34, Infrastructure 54, Api 22, Web 17, Worker 2) and 0 build warnings. The images are built and run-tested, and the Seq live check is done; only the PR is left.
+**Resume point (2026-10-01):** step 6 is in progress on `feature/step6-observability` (from `main` after PR #1 was merged). All step 6 code is written and tested: **129 tests passing** (Oris 34, Infrastructure 54, Api 22, Web 17, Worker 2) and 0 build warnings. The images are built and run-tested, and the Seq live check is done. **PR #2** (https://github.com/anaTsitsagi/LogyxDataHub/pull/2) is open for review; after it is merged, step 7 starts.
 
 ### ▶ Step 6: what is left
 **Done (2026-10-01)**
@@ -425,7 +425,7 @@ CLAUDE.md   points Claude Code sessions to this file
    - `datahub-{web,api,worker,migrator}:0.1.0`: **104–105 MB compressed** each (~367 MB unpacked; the chiseled .NET runtime layer is shared). All run as **user 1654** (image config and `docker top`).
    - Migrator against a throwaway `mssql/server:2022-latest`, `--read-only --tmpfs /tmp`: fresh database → 4 migrations applied, exit 0; second run → "up to date", exit 0; unreachable server → 6 retries, exit 1.
    - Web, Api and Worker with `--read-only --tmpfs /tmp`, a real database and no RabbitMQ/S3/SMTP: Web and Api `/health/live` and `/health/ready` 200; Worker `/health/live` 200 and `/health/ready` 503 ("Not consuming from RabbitMQ"), as designed. No restarts; logs are compact JSON.
-3. Commit the results and open a PR into `main`.
+3. ~~Commit the results and open a PR into `main`~~ **done 2026-10-01**: PR #2.
 
 ### Step 0: Repo hygiene (done)
 - Added a .NET `.gitignore`. Stopped tracking `bin/`, `obj/` and `.vs/` (that is why the diff against `main` shows ~127 deleted build files).
