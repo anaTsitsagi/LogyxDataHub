@@ -1,0 +1,36 @@
+@inject Microsoft.AspNetCore.Antiforgery.IAntiforgery Antiforgery
+@{
+    var csrf = Antiforgery.GetAndStoreTokens(Context).RequestToken;
+}
+<!DOCTYPE html>
+<html lang="ka">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="csrf-token" content="@csrf" />
+    <title>@(ViewData["Title"] ?? "DataHub") · DataHub</title>
+    <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+</head>
+<body>
+    <header class="top">
+        <div class="wrap top__row">
+            <span class="brand">DataHub</span>
+            @if (User.Identity?.IsAuthenticated == true)
+            {
+                <form method="post" asp-antiforgery="true" action="/logout" class="top__logout">
+                    <span class="top__company">@User.Identity.Name</span>
+                    <button type="submit" class="link">გასვლა <span class="en">/ Sign out</span></button>
+                </form>
+            }
+        </div>
+    </header>
+    <main class="wrap">
+        @RenderBody()
+    </main>
+    <footer class="wrap foot">
+        მონაცემები დაცულია და გამოიყენება მხოლოდ სესხის განაცხადის განხილვისთვის.
+        <span class="en">Your data is protected and used only to review your loan application.</span>
+    </footer>
+    @await RenderSectionAsync("Scripts", required: false)
+</body>
+</html>
