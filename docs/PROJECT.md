@@ -370,7 +370,28 @@ CLAUDE.md   points Claude Code sessions to this file
 | 8 | Load test + resource estimate | Planned | – |
 | 9 | Release packaging + SFTP upload | Planned | – |
 
-**Resume point (2026-10-01):** start step 6. Last full run: Oris 34, Infrastructure 53, Api 22, Web 6 = **115 tests, all passing, 0 build warnings**. The branch is pushed; a PR into `main` has not been opened yet.
+**Resume point (2026-10-01):** the next session starts **step 6** (agreed with the user). Last full run: Oris 34, Infrastructure 53, Api 22, Web 6 = **115 tests, all passing, 0 build warnings**. The branch is pushed. A PR into `main` was prepared in the browser (title "DataHub for TBC Bank: portal, upload, worker and report APIs"); whether the user submitted it is unknown.
+
+### ▶ Next session: start here (step 6)
+**1. Check the state first**
+- `git status` and `git log --oneline -3` on `feature/tbc-architecture`; `git fetch` and check whether the PR was created or merged (open https://github.com/anaTsitsagi/LogyxDataHub/pulls; `gh` is not installed). If it was merged, continue on this branch or a new one from `main`, as the user prefers.
+- Baseline: `dotnet build LogyxDataHub.sln` (0 warnings) and `dotnet test LogyxDataHub.sln` (115 passing).
+- For live checks: `scripts\local\start-infra.ps1`, then the apps with the `https` profile (section 6).
+
+**2. Decide with the user at the start**
+- **Local OTLP receiver** to verify logs/traces before k3s exists: Seq for Windows (MSI, free for one user; receives OTLP/HTTP natively; same tool as planned for step 7) or the OpenTelemetry Collector binary with a debug exporter. Recommendation: Seq, because step 7 uses it too.
+- **Docker is not installed**, so Dockerfiles can be written in step 6 but only built once Rancher Desktop is installed (planned for step 7). Ask whether the user wants to install Rancher Desktop now, so images are verified within step 6.
+
+**3. Work items, in this order** (details in "Step 6" below)
+1. **Logging:** Serilog with `Serilog.Sinks.OpenTelemetry` (OTLP/HTTP protobuf) in Web, Api and Worker through one shared registration; configuration only `Otlp:Endpoint` and `Otlp:Headers`; console sink as the stdout fallback; enrich with service name/version, JobId, TenantId, CorrelationId. Check that no personal data, OTPs, link tokens or email/phone values are logged (review the existing log calls).
+2. **Traces and metrics:** OpenTelemetry for ASP.NET Core, HttpClient and SqlClient, plus custom job metrics (duration, rows imported, failures by error code), exported over OTLP/HTTP.
+3. **`DataHub.Migrator`:** console app that applies the EF migrations and exits non-zero on failure (later the Helm pre-install/pre-upgrade Job). Replaces the manual `dotnet ef database update` in section 6.1.
+4. **Health:** a liveness mechanism for the Worker (small HTTP endpoint or a heartbeat file for an exec probe); check `/health/live` and `/health/ready` on Web as well as Api.
+5. **Containers:** `deploy/docker/` with a multi-stage Dockerfile per app (web, api, worker, migrator), chiseled .NET 10 images, non-root, read-only root filesystem with a writable `/tmp`, plus `.dockerignore` (exclude `.local/`, `bin/`, `obj/`, samples). Set `DOTNET_GCHeapHardLimitPercent`.
+6. **Config review:** every setting overridable by environment variables; RabbitMQ `amqps://` support; S3 ServiceURL/region/path-style already configurable.
+7. Tests for the new pieces, the full suite green, `docs/PROJECT.md` updated (status table, 3.2 decisions, section 6 run instructions), commit.
+
+**4. Done when:** all three apps send logs (and traces/metrics) over OTLP/HTTP to the local receiver during a full HIRO run, the Migrator creates a fresh database from scratch, the Dockerfiles exist (and build, if Rancher Desktop is installed), and 0 warnings / all tests pass.
 
 ### Step 0: Repo hygiene (done)
 - Added a .NET `.gitignore`. Stopped tracking `bin/`, `obj/` and `.vs/` (that is why the diff against `main` shows ~127 deleted build files).
@@ -650,7 +671,7 @@ Run everything: `dotnet test LogyxDataHub.sln` (needs LocalDB; sample tests skip
 - Add `Jwt__Key` and `ConnectionStrings__LogyxConnection` to the Azure App Service configuration.
 - Confirm deleting the old untracked copy `source\repos\LogyxDataHub`.
 - Trust the HTTPS dev certificate (`dotnet dev-certs https --trust`).
-- Open a pull request for `feature/tbc-architecture` into `main` (not done yet).
+- Submit the pull request for `feature/tbc-architecture` into `main` (the form was prepared in the browser on 2026-10-01; optional: install the GitHub CLI with `winget install GitHub.cli` and run `gh auth login`, so Claude can open PRs directly).
 - Install Rancher Desktop before step 7.
 
 ---
