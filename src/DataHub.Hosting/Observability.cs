@@ -33,7 +33,7 @@ public sealed class OtlpOptions
     /// <summary>Extra request headers as <c>key1=value1,key2=value2</c> (e.g. an API key). Comes from a Secret.</summary>
     public string Headers { get; set; } = "";
 
-    /// <summary>Some receivers (Seq) accept logs and traces but not metrics.</summary>
+    /// <summary>Off for receivers that accept logs and traces but not metrics (Seq 2026.1 accepts all three).</summary>
     public bool ExportMetrics { get; set; } = true;
 
     internal Dictionary<string, string> ParseHeaders() =>
@@ -67,7 +67,8 @@ public static class Observability
         builder.Services.AddSerilog(writeToProviders: true, configureLogger: (services, log) =>
         {
             log.ReadFrom.Configuration(services.GetRequiredService<IConfiguration>())
-                .Enrich.FromLogContext();
+                .Enrich.FromLogContext()
+                .Enrich.With<RequestPathRedactor>();
 
             // The official .NET images set DOTNET_RUNNING_IN_CONTAINER: write JSON to stdout there, readable text locally.
             if (Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER") == "true")

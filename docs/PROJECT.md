@@ -243,10 +243,10 @@ Logyx must also provide TBC with a **testing environment**.
 - **OpenTelemetry traces** (ASP.NET Core, HttpClient, SqlClient, AWS S3, RabbitMQ.Client's own sources, and DataHub's `process job` span) and **metrics** (ASP.NET Core, HttpClient, runtime, DataHub meter) go to `{Endpoint}/v1/traces` and `/v1/metrics`. Nothing is registered when no endpoint is set.
 - RabbitMQ.Client 7 carries the trace context in message headers, so a worker job joins the trace of the upload that queued it. `CorrelationId` (the upload's trace id) is on every job log line.
 - DataHub metrics (`DataHubTelemetry`): `datahub.job.duration` (s) and `datahub.jobs.finished` (tags `outcome`, `error.code`), `datahub.import.journal_lines`, `datahub.uploads.completed`, `datahub.uploads.bytes`.
-- Settings: `Otlp:Endpoint`, `Otlp:Headers` (`key=value,key2=value2`, from a Secret) and `Otlp:ExportMetrics` (default on; off in the local config until it is confirmed whether Seq accepts OTLP metrics). Resource attributes: `service.name`, `service.version`, `service.instance.id` (the pod name) and `deployment.environment.name`.
+- Settings: `Otlp:Endpoint`, `Otlp:Headers` (`key=value,key2=value2`, from a Secret) and `Otlp:ExportMetrics` (default on; Seq 2026.1 accepts OTLP metrics, checked live, so it is on locally too). Resource attributes: `service.name`, `service.version`, `service.instance.id` (the pod name) and `deployment.environment.name`.
 - Log levels: the `Serilog:MinimumLevel` section, which replaces the old `Logging:LogLevel` (e.g. `Serilog__MinimumLevel__Default=Debug`). ASP.NET Core, EF Core and HttpClient are at Warning.
 - **One request line per HTTP request** (`UseDataHubRequestLogging`), with `TenantId` (API: the `X-Tenant-Id` header; portal: the session) and `CorrelationId` on every line of the request.
-- **Personal data review:** log calls use ids only. Fixed: the SMS outbox file name contained the phone number. **The link token in `/i/{token}` is redacted to `/i/***`** in request logs and trace `url.path` (`SensitiveData.RedactPath`); ASP.NET Core's own request logs are off (Warning).
+- **Personal data review:** log calls use ids only. Fixed: the SMS outbox file name contained the phone number. **The link token in `/i/{token}` is redacted to `/i/***`** in request logs and trace `url.path` (`SensitiveData.RedactPath`), and in the `RequestPath` property that ASP.NET Core's request scope puts on *every* log written during a request (`RequestPathRedactor` enricher; found in the Seq live check); ASP.NET Core's own request logs are off (Warning).
 
 **Containers (step 6)**
 - `deploy/docker/Dockerfile`, **one file with a target per app** (`web`, `api`, `worker`, `migrator`) and one shared build stage that publishes all four. This replaces the planned four separate files, so they can't drift apart.
@@ -398,17 +398,17 @@ CLAUDE.md   points Claude Code sessions to this file
 | 4 | Worker | **Done** | `41af8c0` |
 | 5 | TBC report APIs | **Done** | `e309f5e` |
 | 5a | Local run without Docker + Swagger for local testing | **Done**, verified live with HIRO | `4567109`, `1e6c3b1` |
-| 6 | Cross-cutting: OTLP logging, telemetry, Migrator, Dockerfiles | **In progress**: code and tests done, images built and run-tested; the Seq live check is left | on `feature/step6-observability` |
+| 6 | Cross-cutting: OTLP logging, telemetry, Migrator, Dockerfiles | **In progress**: code, tests, image run test and Seq live check done; PR pending | on `feature/step6-observability` |
 | 7 | Local k3s test environment + Helm chart | Planned | – |
 | 8 | Load test + resource estimate | Planned | – |
 | 9 | Release packaging + SFTP upload | Planned | – |
 
-**Resume point (2026-10-01):** step 6 is in progress on `feature/step6-observability` (from `main` after PR #1 was merged). All step 6 code is written and tested: **128 tests passing** (Oris 34, Infrastructure 54, Api 22, Web 16, Worker 2) and 0 build warnings. Committed and pushed (no PR yet). The images are built and run-tested; only the Seq live check and the PR are left.
+**Resume point (2026-10-01):** step 6 is in progress on `feature/step6-observability` (from `main` after PR #1 was merged). All step 6 code is written and tested: **129 tests passing** (Oris 34, Infrastructure 54, Api 22, Web 17, Worker 2) and 0 build warnings. The images are built and run-tested, and the Seq live check is done; only the PR is left.
 
 ### ▶ Step 6: what is left
 **Done (2026-10-01)**
 - Serilog + OTLP/HTTP logs, OpenTelemetry traces and metrics through `DataHub.Hosting` in Web, Api, Worker and Migrator (details in 3.2 "Logging and telemetry").
-- Personal-data review of the log calls; the link token is redacted; the phone number was removed from the SMS outbox file name.
+- Personal-data review of the log calls; the link token is redacted (also in the request-scope `RequestPath`, fixed after the Seq check); the phone number was removed from the SMS outbox file name.
 - `DataHub.Migrator`, checked live: a fresh database got all migrations (exit 0), a second run was a no-op, an unreachable server gave exit 1. Applied `AddDataProtectionKeys` to the local `DataHub` database.
 - Health: `/health/live` and `/health/ready` on Web, Api and Worker.
 - The portal's Data Protection keys are in the database (replicas and restarts keep sessions).
@@ -416,7 +416,11 @@ CLAUDE.md   points Claude Code sessions to this file
 - Config review: everything comes from configuration, so it can be overridden by environment variables. `amqps://` URIs switch on TLS in RabbitMQ.Client (its `Uri` setter). S3 ServiceURL/region/path-style were already settings.
 
 **Still to do (needs the user's installs; see 8.3)**
-1. With Seq running: start the infrastructure and the three apps, do a full HIRO run, and check in Seq (http://localhost:5341) that logs and traces from web, api and worker arrive. Check that the worker's `process job` span joins the upload's trace, that `/i/***` appears instead of the token, and that `TenantId`/`CorrelationId` are set. Try `Otlp:ExportMetrics=true` to see whether Seq accepts metrics, and record the result.
+1. ~~Seq live check~~ **done 2026-10-01** (Seq 2026.1, two full HIRO runs through API → portal → S3 → RabbitMQ → worker → reports, job ~7 s):
+   - Logs and traces from `datahub-api`, `datahub-web` and `datahub-worker` arrive (OTLP/HTTP protobuf, `service.name` set).
+   - The worker's `process job` span is in the same trace as the portal's `POST portal-api/uploads/{uploadId}/complete` (with its SQL, S3 and `publish` spans); the worker's `CorrelationId` equals that trace id; `TenantId` is on the job lines.
+   - **Found and fixed a token leak:** the "Email sent" log line during `POST /i/{token}` carried the raw token in the `RequestPath` property of ASP.NET Core's request scope. Now redacted by the `RequestPathRedactor` enricher (unit test added). Second run: 0 of 129 events contain the token; every `RequestPath` under `/i/` is `/i/***`.
+   - **Seq accepts OTLP metrics** (`/v1/metrics` → 200; ASP.NET Core metrics queryable in Seq), so `ExportMetrics` is now `true` in the local config.
 2. ~~Build and run the images~~ **done 2026-10-01** (Rancher Desktop 1.24, moby 29.5; built inside the VM, see 6.4):
    - `datahub-{web,api,worker,migrator}:0.1.0`: **104–105 MB compressed** each (~367 MB unpacked; the chiseled .NET runtime layer is shared). All run as **user 1654** (image config and `docker top`).
    - Migrator against a throwaway `mssql/server:2022-latest`, `--read-only --tmpfs /tmp`: fresh database → 4 migrations applied, exit 0; second run → "up to date", exit 0; unreachable server → 6 retries, exit 1.
@@ -561,7 +565,14 @@ What was built is in 3.2 ("Logging and telemetry", "Containers", the worker prob
   dotnet run --project src\DataHub.Migrator     # Local environment → LocalDB database DataHub; exit code 0 = up to date
   ```
   `dotnet ef` (local tool, `dotnet tool restore`) is still used to *create* migrations.
-- **Seq** (OTLP receiver for logs and traces): `winget install Datalust.Seq` (elevated). It runs as a Windows service with its UI at http://localhost:5341. The apps' `appsettings.Local.json` send to `http://localhost:5341/ingest/otlp`; if Seq isn't running, they still log to the console.
+- **Seq** (OTLP receiver for logs, traces and metrics): `winget install Datalust.Seq` (elevated). The apps' `appsettings.Local.json` send to `http://localhost:5341/ingest/otlp`; if Seq isn't running, they still log to the console.
+  - On this PC the installer's setup wizard didn't register the Windows service, so Seq runs as a normal process with its data in `.local\seq` (gitignored). One-time config (no admin rights needed: Kestrel instead of HTTP.sys, which needs a `netsh http add urlacl`; loopback only, because there is no login):
+    ```powershell
+    $seq = "C:\Program Files\Seq\seq.exe"; $st = "$PWD\.local\seq"
+    & $seq config set -k api.webServer -v Kestrel --storage="$st"
+    & $seq config set -k api.listenUris -v "http://127.0.0.1:5341" --storage="$st"
+    ```
+  - Start it (after each reboot): `$env:SEQ_FIRSTRUN_NOAUTHENTICATION="true"; Start-Process $seq -ArgumentList "run","--nologo","--storage=`"$st`"" -WindowStyle Hidden`. UI at http://localhost:5341.
 - **Rancher Desktop** (Docker and k3s, on WSL2) for building images: `wsl --install --no-distribution`, then `winget install SUSE.RancherDesktop` (both elevated; reboot if asked), choosing the dockerd (moby) engine.
 - **Local tools** in `.local\tools` (gitignored; downloaded 2026-10-01, checksums verified):
   - `mailpit.exe` (v1.31.3)
@@ -643,7 +654,7 @@ Pitfalls: a token from `/dev/token` with other values has no scopes → 403; the
    - `helm upgrade` with a migration.
 5. The load test produces `docs/resource-estimate.md`.
 
-### 7.2 Current test inventory (128 tests, all passing, 0 build warnings)
+### 7.2 Current test inventory (129 tests, all passing, 0 build warnings)
 - **DataHub.Oris.Tests (34):**
   - `ParsingRulesTests`: Georgian decoding, Clarion dates, account parsing rules
   - `SampleFileTests`: the reference `WIRING.TPS` (16,781 rows, total 10,525,411.79), the HIRO `Acc_name.tps`, detection of the encrypted `ACCOUNT.TPS`
@@ -670,7 +681,7 @@ Pitfalls: a token from `/dev/token` with other values has no scopes → 403; the
 - **DataHub.Api.Tests (22):**
   - `InvitationsApiTests` (6): auth required, scope enforced, create/get invitation, idempotency over HTTP, client isolation, validation ProblemDetails.
   - `ReportsApiTests`: the reports scope is required; the tenant header is required and must be known; a company without processed data gets a clear 404; a `tenantId` query must match the header; each tenant sees only its own data; journal contract fields, inclusive dates and paging headers; journal filters by ORIS-form account and currency; invalid parameters are rejected with a code; turnover and balance-sheet contract shapes; readiness checks the database.
-- **DataHub.Web.Tests (16):**
+- **DataHub.Web.Tests (17):**
   - `PortalFlowTests` (6):
     - the customer verifies, uploads in chunks, and the job is queued
     - an invalid ZIP returns a bilingual error code
@@ -678,7 +689,7 @@ Pitfalls: a token from `/dev/token` with other values has no scopes → 403; the
     - the upload API rejects requests without a CSRF token
     - a wrong company code shows an error and sends no code
     - an unknown link shows the invalid page with security headers
-  - `ObservabilityUnitTests` (8): link-token redaction of paths; OTLP header and endpoint parsing.
+  - `ObservabilityUnitTests` (9): link-token redaction of paths and of the request-scope `RequestPath` on every log; OTLP header and endpoint parsing.
   - `RequestLoggingTests`: requests to `/i/{token}` (valid and invalid) log `/i/***` and never the token, email or phone.
   - `ReplicaTests`: a cookie payload protected by one portal instance is readable by another, and the key is in the database.
 - **DataHub.Worker.Tests (2):** `WorkerHealthTests`: liveness fails only when the maintenance loop stops; readiness needs a consumer channel.
@@ -716,7 +727,7 @@ Run everything: `dotnet test LogyxDataHub.sln` (needs LocalDB; sample tests skip
 - Confirm deleting the old untracked copy `source\repos\LogyxDataHub`.
 - Trust the HTTPS dev certificate (`dotnet dev-certs https --trust`).
 - Optional: install the GitHub CLI (`winget install GitHub.cli`, then `gh auth login`), so Claude can open PRs directly. (PR #1 for `feature/tbc-architecture` was merged.)
-- **For step 6, in an elevated PowerShell:** `winget install Datalust.Seq` (see 6.1). WSL and Rancher Desktop are installed.
+- Step 6 installs are done (WSL, Rancher Desktop, Seq). Optional: protect Seq with a login (it has none and listens on 127.0.0.1 only; see 6.1).
 - Optional: fix Rancher Desktop's Windows bridge (see 6.4), e.g. reinstall or try another version, so `docker` and `scripts\build-images.ps1` work from Windows again. Not blocking: the images build inside the VM.
 
 ---
@@ -767,4 +778,6 @@ Run everything: `dotnet test LogyxDataHub.sln` (needs LocalDB; sample tests skip
 | Serilog quotes string values when it renders a message for other logger providers | Tests match `"GET" "/i/***"` |
 | Swagger's `"string"` placeholders produced a token without scopes (403) | `[DefaultValue]` defaults on `DevTokenRequest`; example body for `POST /invitations` |
 | EF Core warning: row limit without `OrderBy` in `JobRecovery` | Order stale jobs by `HeartbeatAt` |
+| The link token reached Seq in the `RequestPath` property of ASP.NET Core's request scope (on "Email sent" during `POST /i/{token}`); the log-capture test only checked rendered messages | `RequestPathRedactor` Serilog enricher; unit test through a real MEL scope |
+| Seq as a non-admin process: HTTP.sys needs a URL reservation; first run needs an admin password or no-auth; `localhost` bound to `0.0.0.0` under Kestrel | `api.webServer=Kestrel`, `api.listenUris=http://127.0.0.1:5341`, `SEQ_FIRSTRUN_NOAUTHENTICATION=true` |
 | Rancher Desktop 1.24: Windows `docker` times out on the Hyper-V socket, VM DNS `192.168.127.1` times out, credential helpers hang | Build and run inside the VM with public DNS, a Linux-only PATH and an empty `DOCKER_CONFIG` (6.4) |

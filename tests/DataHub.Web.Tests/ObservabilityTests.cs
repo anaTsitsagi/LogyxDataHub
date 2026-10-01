@@ -10,6 +10,9 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Serilog.Core;
+using Serilog.Events;
+using Serilog.Extensions.Logging;
 
 namespace DataHub.Web.Tests;
 
@@ -25,6 +28,29 @@ public sealed class ObservabilityUnitTests
     [InlineData("/portal-api/uploads", "/portal-api/uploads")]
     public void Link_token_is_redacted_from_paths(string path, string expected) =>
         Assert.Equal(expected, SensitiveData.RedactPath(new PathString(path)));
+
+    [Fact]
+    public void Request_path_from_the_aspnetcore_scope_is_redacted_on_every_log()
+    {
+        var events = new ConcurrentQueue<LogEvent>();
+        using var serilog = new Serilog.LoggerConfiguration().Enrich.FromLogContext().Enrich.With<RequestPathRedactor>()
+            .WriteTo.Sink(new CollectingSink(events)).CreateLogger();
+        using var factory = new LoggerFactory([new SerilogLoggerProvider(serilog)]);
+        var logger = factory.CreateLogger("Test");
+
+        // ASP.NET Core's hosting scope adds RequestPath to every log written during the request.
+        using (logger.BeginScope(new Dictionary<string, object> { ["RequestPath"] = "/i/AbC-123_tok" }))
+            logger.LogInformation("Email sent: {Subject}", "Verification code");
+        using (logger.BeginScope(new Dictionary<string, object> { ["RequestPath"] = "/portal-api/uploads" }))
+            logger.LogInformation("Other request");
+
+        Assert.Equal(["\"/i/***\"", "\"/portal-api/uploads\""], events.Select(e => e.Properties["RequestPath"].ToString()));
+    }
+
+    private sealed class CollectingSink(ConcurrentQueue<LogEvent> events) : ILogEventSink
+    {
+        public void Emit(LogEvent logEvent) => events.Enqueue(logEvent);
+    }
 
     [Fact]
     public void Otlp_headers_and_signal_addresses_are_parsed()
