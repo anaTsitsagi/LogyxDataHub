@@ -76,7 +76,7 @@ public sealed class InvitationsApiTests(SqlDatabaseFixture db) : IDisposable
         Assert.Equal(HttpStatusCode.Created, created.StatusCode);
         var body = await created.Content.ReadFromJsonAsync<JsonElement>();
         var link = body.GetProperty("link").GetString()!;
-        Assert.StartsWith("http://datahub.localtest.me/i/", link);
+        Assert.StartsWith("https://localhost:7049/i/", link);
         Assert.Equal(["sms", "email"], body.GetProperty("deliveredChannels").EnumerateArray().Select(e => e.GetString()));
         Assert.Contains(_factory.Sms.Sent, m => m.Phone == "+995555123456" && m.Text.Contains(link));
         Assert.Contains(_factory.Email.Sent, m => m.Body.Contains(link));
