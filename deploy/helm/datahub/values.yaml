@@ -67,6 +67,7 @@ apps:
     secretKeys: [ConnectionStrings__DataHub, Security__SigningKey, S3__AccessKey, S3__SecretKey, RabbitMq__Uri, Smtp__Username, Smtp__Password, Otlp__Headers]
     service: true
     tmpSizeLimit: 1Gi
+    # Measured: idle ~20m / 190-225 MiB; peak ~1.15 cores / 227 MiB while receiving uploads (5 at once).
     resources:
       requests: { cpu: 100m, memory: 256Mi }
       limits: { memory: 512Mi }
@@ -81,6 +82,7 @@ apps:
     secretKeys: [ConnectionStrings__DataHub, Security__SigningKey, S3__AccessKey, S3__SecretKey, RabbitMq__Uri, Smtp__Username, Smtp__Password, Otlp__Headers, Auth__DevSigningKey]
     service: true
     tmpSizeLimit: 1Gi
+    # Measured: idle ~4m / 145-170 MiB; peak ~0.7 core / 187 MiB (report queries during imports).
     resources:
       requests: { cpu: 100m, memory: 256Mi }
       limits: { memory: 512Mi }
@@ -94,10 +96,13 @@ apps:
     service: false
     # An in-flight job hands itself back within the app's 25 s shutdown timeout.
     terminationGracePeriodSeconds: 40
-    # The ZIP and its extracted TPS files (Uploads limits: 2 GB compressed, 20 GB uncompressed).
-    tmpSizeLimit: 25Gi
+    # The downloaded ZIP (max 2 GB) plus one extracted table at a time (measured: 1,901 MiB for a 1.9 GB ZIP).
+    tmpSizeLimit: 3Gi
+    # Measured in step 8 (docs/resource-estimate.md): ~300-410 MiB process memory for typical files, plus about
+    # 28 MiB per MB of WIRING.TPS (the TPS parser holds the whole table); 2Gi handles WIRING.TPS up to ~55 MB.
+    # CPU peaks at ~1.4 cores during an import; no CPU limit, so imports aren't throttled.
     resources:
-      requests: { cpu: 250m, memory: 512Mi }
+      requests: { cpu: 500m, memory: 768Mi, ephemeral-storage: 3Gi }
       limits: { memory: 2Gi }
     autoscaling:
       enabled: false

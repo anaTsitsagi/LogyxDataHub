@@ -28,17 +28,18 @@ spec:
           env:
             # A fixed node name, so the data on the volume survives pod restarts.
             - { name: RABBITMQ_NODENAME, value: rabbit@localhost }
+            # No scheduler busy-waiting: idle, it otherwise uses ~0.4 core (peaks over 1 core) for nothing.
+            - { name: RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS, value: "+sbwt none +sbwtdcpu none +sbwtdio none" }
             - name: RABBITMQ_DEFAULT_USER
               valueFrom:
                 secretKeyRef: { name: datahub-local-infra, key: rabbitmq-user }
             - name: RABBITMQ_DEFAULT_PASS
               valueFrom:
                 secretKeyRef: { name: datahub-local-infra, key: rabbitmq-password }
+          # A TCP check: rabbitmq-diagnostics starts a whole Erlang VM per probe (~0.4 core on average).
           readinessProbe:
-            exec:
-              command: [rabbitmq-diagnostics, -q, check_port_connectivity]
+            tcpSocket: { port: amqp }
             periodSeconds: 10
-            timeoutSeconds: 10
           resources:
             requests: { cpu: 100m, memory: 256Mi }
             limits: { memory: 768Mi }
