@@ -53,7 +53,7 @@ Logyx must also provide TBC with a **testing environment**.
 | # | Requirement | How we meet it |
 |---|---|---|
 | 1 | Central logging through Serilog, sent as GELF or OTLP/HTTP | **OTLP/HTTP only** (user's decision), via `Serilog.Sinks.OpenTelemetry` (step 6; code done, live check pending) |
-| 2 | Containerized | `deploy/docker/Dockerfile`: multi-stage build, one target per app, chiseled image, non-root user (step 6; build pending Rancher Desktop) |
+| 2 | Containerized | `deploy/docker/Dockerfile`: multi-stage build, one target per app, chiseled image, non-root user (step 6; built and run-tested 2026-10-01: ~105 MB per image, user 1654) |
 | 3 | Updates delivered to TBC's SFTP, as a zipped Docker image and/or a Helm chart plus image | `package-release.ps1` + `upload-sftp.ps1` (step 9) |
 | 4 | MSSQL | EF Core 10 on SQL Server, `datahub` schema (done) |
 | 5 | AWS S3 | AWSSDK.S3 (done; verified live against SeaweedFS locally) |
@@ -398,12 +398,12 @@ CLAUDE.md   points Claude Code sessions to this file
 | 4 | Worker | **Done** | `41af8c0` |
 | 5 | TBC report APIs | **Done** | `e309f5e` |
 | 5a | Local run without Docker + Swagger for local testing | **Done**, verified live with HIRO | `4567109`, `1e6c3b1` |
-| 6 | Cross-cutting: OTLP logging, telemetry, Migrator, Dockerfiles | **In progress**: code and tests done; live checks wait for Seq and Rancher Desktop | on `feature/step6-observability` |
+| 6 | Cross-cutting: OTLP logging, telemetry, Migrator, Dockerfiles | **In progress**: code and tests done, images built and run-tested; the Seq live check is left | on `feature/step6-observability` |
 | 7 | Local k3s test environment + Helm chart | Planned | – |
 | 8 | Load test + resource estimate | Planned | – |
 | 9 | Release packaging + SFTP upload | Planned | – |
 
-**Resume point (2026-10-01):** step 6 is in progress on `feature/step6-observability` (from `main` after PR #1 was merged). All step 6 code is written and tested: **128 tests passing** (Oris 34, Infrastructure 54, Api 22, Web 16, Worker 2) and 0 build warnings. Committed and pushed (no PR yet); only the live checks below are left.
+**Resume point (2026-10-01):** step 6 is in progress on `feature/step6-observability` (from `main` after PR #1 was merged). All step 6 code is written and tested: **128 tests passing** (Oris 34, Infrastructure 54, Api 22, Web 16, Worker 2) and 0 build warnings. Committed and pushed (no PR yet). The images are built and run-tested; only the Seq live check and the PR are left.
 
 ### ▶ Step 6: what is left
 **Done (2026-10-01)**
@@ -417,7 +417,10 @@ CLAUDE.md   points Claude Code sessions to this file
 
 **Still to do (needs the user's installs; see 8.3)**
 1. With Seq running: start the infrastructure and the three apps, do a full HIRO run, and check in Seq (http://localhost:5341) that logs and traces from web, api and worker arrive. Check that the worker's `process job` span joins the upload's trace, that `/i/***` appears instead of the token, and that `TenantId`/`CorrelationId` are set. Try `Otlp:ExportMetrics=true` to see whether Seq accepts metrics, and record the result.
-2. With Rancher Desktop running: `scripts\build-images.ps1`. Then run the images with `--read-only --tmpfs /tmp`: the migrator against a throwaway `mssql/server:2022-latest` container (LocalDB isn't reachable from containers), and web/api/worker far enough to answer `/health/live`. Record the image sizes and confirm they run as user 1654.
+2. ~~Build and run the images~~ **done 2026-10-01** (Rancher Desktop 1.24, moby 29.5; built inside the VM, see 6.4):
+   - `datahub-{web,api,worker,migrator}:0.1.0`: **104–105 MB compressed** each (~367 MB unpacked; the chiseled .NET runtime layer is shared). All run as **user 1654** (image config and `docker top`).
+   - Migrator against a throwaway `mssql/server:2022-latest`, `--read-only --tmpfs /tmp`: fresh database → 4 migrations applied, exit 0; second run → "up to date", exit 0; unreachable server → 6 retries, exit 1.
+   - Web, Api and Worker with `--read-only --tmpfs /tmp`, a real database and no RabbitMQ/S3/SMTP: Web and Api `/health/live` and `/health/ready` 200; Worker `/health/live` 200 and `/health/ready` 503 ("Not consuming from RabbitMQ"), as designed. No restarts; logs are compact JSON.
 3. Commit the results and open a PR into `main`.
 
 ### Step 0: Repo hygiene (done)
@@ -595,6 +598,14 @@ Or start them from Visual Studio with the `https` profile.
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\build-images.ps1 -Version 0.1.0   # datahub-web/api/worker/migrator:0.1.0
 ```
+**On this PC (2026-10-01) Rancher Desktop 1.24's Windows bridge is broken**: `docker` on Windows fails with "timed out dialing Hyper-V socket" (the "Win32 socket proxy" crash-loops in `%LOCALAPPDATA%\rancher-desktop\logs\background.log`), and the VM's DNS forwarder `192.168.127.1` times out. Restarting Rancher didn't help, and 1.24 has no setting to turn the networking tunnel off. The VM's own internet access works, so build inside the VM instead:
+```powershell
+# DNS: public resolvers until Rancher restarts (Rancher rewrites the file on start)
+wsl -d rancher-desktop sh -c 'printf "nameserver 8.8.8.8\nnameserver 1.1.1.1\n" > /etc/resolv.conf'
+# Linux-only PATH and an empty docker config: the VM's credential helpers call back to Windows and hang
+wsl -d rancher-desktop sh -c 'export PATH=/usr/sbin:/usr/bin:/sbin:/bin DOCKER_CONFIG=/tmp/dh-dockercfg; mkdir -p $DOCKER_CONFIG; echo {} > $DOCKER_CONFIG/config.json; cd /mnt/c/Users/anaci/source/repos/LogyxDataHubRepo; for a in web api worker migrator; do docker build -f deploy/docker/Dockerfile --target $a --build-arg VERSION=0.1.0 -t datahub-$a:0.1.0 . || exit 1; done'
+```
+From Git Bash, prefix `wsl` with `MSYS_NO_PATHCONV=1` so `/mnt/c/...` isn't rewritten. Pass connection strings to `docker run` with `--env-file` (they contain spaces).
 
 ### 6.5 Test the flow by hand
 1. Swagger https://localhost:7174/swagger → definition **"dev (local token)"** → `POST /dev/token` (pre-filled) → copy `access_token` → **Authorize**.
@@ -705,7 +716,8 @@ Run everything: `dotnet test LogyxDataHub.sln` (needs LocalDB; sample tests skip
 - Confirm deleting the old untracked copy `source\repos\LogyxDataHub`.
 - Trust the HTTPS dev certificate (`dotnet dev-certs https --trust`).
 - Optional: install the GitHub CLI (`winget install GitHub.cli`, then `gh auth login`), so Claude can open PRs directly. (PR #1 for `feature/tbc-architecture` was merged.)
-- **For step 6, in an elevated PowerShell:** `wsl --install --no-distribution`, `winget install SUSE.RancherDesktop`, `winget install Datalust.Seq` (see 6.1).
+- **For step 6, in an elevated PowerShell:** `winget install Datalust.Seq` (see 6.1). WSL and Rancher Desktop are installed.
+- Optional: fix Rancher Desktop's Windows bridge (see 6.4), e.g. reinstall or try another version, so `docker` and `scripts\build-images.ps1` work from Windows again. Not blocking: the images build inside the VM.
 
 ---
 
@@ -755,3 +767,4 @@ Run everything: `dotnet test LogyxDataHub.sln` (needs LocalDB; sample tests skip
 | Serilog quotes string values when it renders a message for other logger providers | Tests match `"GET" "/i/***"` |
 | Swagger's `"string"` placeholders produced a token without scopes (403) | `[DefaultValue]` defaults on `DevTokenRequest`; example body for `POST /invitations` |
 | EF Core warning: row limit without `OrderBy` in `JobRecovery` | Order stale jobs by `HeartbeatAt` |
+| Rancher Desktop 1.24: Windows `docker` times out on the Hyper-V socket, VM DNS `192.168.127.1` times out, credential helpers hang | Build and run inside the VM with public DNS, a Linux-only PATH and an empty `DOCKER_CONFIG` (6.4) |
