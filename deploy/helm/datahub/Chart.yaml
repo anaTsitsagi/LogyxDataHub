@@ -1,0 +1,8 @@
+apiVersion: v2
+name: datahub
+description: Logyx DataHub for TBC Bank - customer portal, LOS API, import worker and database migrator.
+type: application
+# Chart version; bumped with every release (step 9 packages it next to the images).
+version: 0.1.0
+# Default image tag when image.tag is empty.
+appVersion: "0.1.0"

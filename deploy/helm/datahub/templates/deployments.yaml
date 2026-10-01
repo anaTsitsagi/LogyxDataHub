@@ -1,0 +1,157 @@
+{{- /* One template for web, api and worker, so the three can't drift apart (like the one Dockerfile). */ -}}
+{{- $root := . -}}
+{{- range $app, $cfg := .Values.apps }}
+{{- if $cfg.enabled }}
+{{- $ctx := dict "root" $root "app" $app }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "datahub.name" $ctx }}
+  labels:
+    {{- include "datahub.labels" $ctx | nindent 4 }}
+spec:
+  {{- if not (and $cfg.autoscaling $cfg.autoscaling.enabled) }}
+  replicas: {{ $cfg.replicas }}
+  {{- end }}
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      {{- include "datahub.selectorLabels" $ctx | nindent 6 }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        {{- include "datahub.labels" $ctx | nindent 8 }}
+      annotations:
+        # Restart the pods when the shared settings change.
+        checksum/config: {{ include (print $root.Template.BasePath "/configmap.yaml") $root | sha256sum }}
+        {{- with $root.Values.pod.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      automountServiceAccountToken: false
+      {{- with $root.Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml $root.Values.pod.securityContext | nindent 8 }}
+      {{- with $cfg.terminationGracePeriodSeconds }}
+      terminationGracePeriodSeconds: {{ . }}
+      {{- end }}
+      containers:
+        - name: {{ $app }}
+          image: {{ include "datahub.image" $ctx }}
+          imagePullPolicy: {{ $root.Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ $root.Values.pod.port }}
+          envFrom:
+            - configMapRef:
+                name: {{ $root.Release.Name }}-config
+          env:
+            {{- include "datahub.commonEnv" $ctx | nindent 12 }}
+            {{- range $key, $value := $cfg.env }}
+            - name: {{ $key }}
+              value: {{ $value | toString | quote }}
+            {{- end }}
+            {{- if $root.Values.smsOutbox.hostPath }}
+            - name: Sms__OutboxDirectory
+              value: /sms-outbox
+            {{- end }}
+            {{- include "datahub.secretEnv" (dict "root" $root "keys" $cfg.secretKeys) | nindent 12 }}
+          startupProbe:
+            httpGet: { path: /health/live, port: http }
+            periodSeconds: 2
+            failureThreshold: 60
+          livenessProbe:
+            httpGet: { path: /health/live, port: http }
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet: { path: /health/ready, port: http }
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 3
+          securityContext:
+            {{- toYaml $root.Values.pod.containerSecurityContext | nindent 12 }}
+          resources:
+            {{- toYaml $cfg.resources | nindent 12 }}
+          volumeMounts:
+            # The root filesystem is read-only; temp files (and the worker's extracted ZIPs) go here.
+            - name: tmp
+              mountPath: /tmp
+            {{- if $root.Values.smsOutbox.hostPath }}
+            - name: sms-outbox
+              mountPath: /sms-outbox
+            {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: {{ $cfg.tmpSizeLimit }}
+        {{- if $root.Values.smsOutbox.hostPath }}
+        - name: sms-outbox
+          hostPath:
+            path: {{ $root.Values.smsOutbox.hostPath }}
+            type: DirectoryOrCreate
+        {{- end }}
+      {{- with $root.Values.pod.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $root.Values.pod.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $root.Values.pod.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- if $cfg.service }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "datahub.name" $ctx }}
+  labels:
+    {{- include "datahub.labels" $ctx | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "datahub.selectorLabels" $ctx | nindent 4 }}
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+{{- end }}
+{{- if and $cfg.autoscaling $cfg.autoscaling.enabled }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "datahub.name" $ctx }}
+  labels:
+    {{- include "datahub.labels" $ctx | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "datahub.name" $ctx }}
+  minReplicas: {{ $cfg.autoscaling.minReplicas }}
+  maxReplicas: {{ $cfg.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ $cfg.autoscaling.targetCPUUtilizationPercentage }}
+{{- end }}
+{{- end }}
+{{- end }}

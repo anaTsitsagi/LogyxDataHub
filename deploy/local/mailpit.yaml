@@ -1,0 +1,34 @@
+# Mailpit: SMTP on mailpit:1025, inbox at http://mailpit.localtest.me. Mail is kept only while the pod runs.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mailpit
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: mailpit }
+  template:
+    metadata:
+      labels: { app: mailpit }
+    spec:
+      containers:
+        - name: mailpit
+          image: axllent/mailpit:latest
+          ports:
+            - { name: smtp, containerPort: 1025 }
+            - { name: ui, containerPort: 8025 }
+          readinessProbe:
+            httpGet: { path: /readyz, port: ui }
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+            limits: { memory: 128Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mailpit
+spec:
+  selector: { app: mailpit }
+  ports:
+    - { name: smtp, port: 1025, targetPort: smtp }
+    - { name: ui, port: 80, targetPort: ui }

@@ -1,0 +1,12 @@
+# Local infrastructure for the DataHub chart (namespace datahub-local). Applied by scripts/local/k8s-up.ps1,
+# which first creates the Secret datahub-local-infra (passwords and keys; never committed).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: datahub-local
+resources:
+  - mssql.yaml
+  - rabbitmq.yaml
+  - seaweedfs.yaml
+  - mailpit.yaml
+  - seq.yaml
+  - ingress.yaml

@@ -1,0 +1,63 @@
+# RabbitMQ 4.3 with the management UI (http://rabbitmq.localtest.me). User and password: Secret datahub-local-infra.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: rabbitmq
+spec:
+  serviceName: rabbitmq
+  replicas: 1
+  selector:
+    matchLabels: { app: rabbitmq }
+  template:
+    metadata:
+      labels: { app: rabbitmq }
+    spec:
+      # Run everything as rabbitmq (999). Otherwise the readiness probe runs as root and, if it fires before the
+      # server is up, creates a root-only .erlang.cookie that the server then can't read (first start fails).
+      # No fsGroup: it makes the cookie group-readable on every mount, and Erlang then refuses to start.
+      # (local-path volumes are writable for any user.)
+      securityContext:
+        runAsUser: 999
+        runAsGroup: 999
+      containers:
+        - name: rabbitmq
+          image: rabbitmq:4.3-management
+          ports:
+            - { name: amqp, containerPort: 5672 }
+            - { name: ui, containerPort: 15672 }
+          env:
+            # A fixed node name, so the data on the volume survives pod restarts.
+            - { name: RABBITMQ_NODENAME, value: rabbit@localhost }
+            - name: RABBITMQ_DEFAULT_USER
+              valueFrom:
+                secretKeyRef: { name: datahub-local-infra, key: rabbitmq-user }
+            - name: RABBITMQ_DEFAULT_PASS
+              valueFrom:
+                secretKeyRef: { name: datahub-local-infra, key: rabbitmq-password }
+          readinessProbe:
+            exec:
+              command: [rabbitmq-diagnostics, -q, check_port_connectivity]
+            periodSeconds: 10
+            timeoutSeconds: 10
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { memory: 768Mi }
+          volumeMounts:
+            - { name: data, mountPath: /var/lib/rabbitmq }
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests: { storage: 2Gi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rabbitmq
+spec:
+  selector: { app: rabbitmq }
+  ports:
+    - { name: amqp, port: 5672, targetPort: amqp }
+    - { name: ui, port: 15672, targetPort: ui }

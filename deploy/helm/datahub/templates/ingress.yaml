@@ -1,0 +1,44 @@
+{{- if .Values.ingress.enabled }}
+{{- $web := dict "root" . "app" "web" }}
+{{- $api := dict "root" . "app" "api" }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ .Release.Name }}
+  labels:
+    {{- include "datahub.labels" (dict "root" . "app" "ingress") | nindent 4 }}
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  tls:
+    - hosts:
+        - {{ required "ingress.portalHost is required" .Values.ingress.portalHost | quote }}
+        - {{ required "ingress.apiHost is required" .Values.ingress.apiHost | quote }}
+      {{- with .Values.ingress.tlsSecretName }}
+      secretName: {{ . }}
+      {{- end }}
+  rules:
+    - host: {{ .Values.ingress.portalHost | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "datahub.name" $web }}
+                port: { name: http }
+    - host: {{ .Values.ingress.apiHost | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "datahub.name" $api }}
+                port: { name: http }
+{{- end }}

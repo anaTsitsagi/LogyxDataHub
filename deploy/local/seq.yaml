@@ -1,0 +1,47 @@
+# Seq: OTLP/HTTP receiver at http://seq/ingest/otlp, UI at http://seq.localtest.me.
+# No login: it is reachable only through this PC's ingress (local cluster only).
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: seq
+spec:
+  serviceName: seq
+  replicas: 1
+  selector:
+    matchLabels: { app: seq }
+  template:
+    metadata:
+      labels: { app: seq }
+    spec:
+      containers:
+        - name: seq
+          image: datalust/seq:latest
+          ports:
+            - { name: http, containerPort: 80 }
+          env:
+            - { name: ACCEPT_EULA, value: "Y" }
+            - { name: SEQ_FIRSTRUN_NOAUTHENTICATION, value: "true" }
+          readinessProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 10
+          resources:
+            requests: { cpu: 50m, memory: 256Mi }
+            limits: { memory: 1Gi }
+          volumeMounts:
+            - { name: data, mountPath: /data }
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests: { storage: 5Gi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: seq
+spec:
+  selector: { app: seq }
+  ports:
+    - { name: http, port: 80, targetPort: http }
