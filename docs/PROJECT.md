@@ -1,6 +1,6 @@
 # Logyx DataHub for TBC Bank: project reference
 
-_Last updated: 2026-10-02. Steps 0–6 are merged into `main` (PR #1, PR #2). Step 7 is in progress on branch `feature/step7-local-k8s`._
+_Last updated: 2026-10-02. Steps 0–6 are merged into `main` (PR #1, PR #2). Step 7 is done on `feature/step7-local-k8s`, in review as PR #3._
 
 **This file is the single reference for the project:** context, requirements, every decision, architecture, status per step, how to run it, open items and lessons learned.
 - Read it at the start of any work session.
@@ -419,11 +419,11 @@ CLAUDE.md   points Claude Code sessions to this file
 | 5 | TBC report APIs | **Done** | `e309f5e` |
 | 5a | Local run without Docker + Swagger for local testing | **Done**, verified live with HIRO | `4567109`, `1e6c3b1` |
 | 6 | Cross-cutting: OTLP logging, telemetry, Migrator, Dockerfiles | **Done**, merged (PR #2) | `67eadba` |
-| 7 | Local k3s test environment + Helm chart | **In progress**: chart and local cluster work end to end | on `feature/step7-local-k8s` |
+| 7 | Local k3s test environment + Helm chart | **Done, in review**: PR #3 | on `feature/step7-local-k8s` |
 | 8 | Load test + resource estimate | Planned | – |
 | 9 | Release packaging + SFTP upload | Planned | – |
 
-**Resume point (2026-10-02):** step 7 is in progress on `feature/step7-local-k8s` (from `main` after PR #2 was merged). The Helm chart and the local cluster work end to end (see "▶ Step 7: status" below). No .NET code changed in step 7, so the tests are unchanged: **129 passing**, 0 build warnings.
+**Resume point (2026-10-02):** step 7 is in progress on `feature/step7-local-k8s` (from `main` after PR #2 was merged). The Helm chart, the local cluster, the smoke test and the browser test are done (see "▶ Step 7: status" below); in review as PR #3. No .NET code changed in step 7, so the tests are unchanged: **129 passing**, 0 build warnings.
 
 ### ▶ Step 7: status
 **Done (2026-10-02)**
@@ -435,11 +435,11 @@ CLAUDE.md   points Claude Code sessions to this file
   - `k8s-down.ps1` then `k8s-up.ps1`: the data survives (the invitation is still `processed`, the reports still answer).
 - Fixed on the way: RabbitMQ's first start and restarts (section 10).
 - **`scripts/local/smoke-test.ps1`** (the agreed form of the "integration tests against real MSSQL, RabbitMQ and S3"): the whole flow against a running DataHub (13 checks: invitation, OTP from Mailpit, chunked upload, job, three reports, unknown tenant 404, link token absent from Seq), exit code 0/1. Passed against the local cluster on 2026-10-02 (3 parts of 5 MB, job done 32 s after start). It refuses non-local hosts because it uses dev tokens.
+- **Browser test of the upload page: passed** (done by the user in Chrome on 2026-10-02 against `https://datahub.localtest.me` with `.local	est-data\HIRO.zip`, 3 parts of 5 MB; the Chrome extension isn't installed, so it was done by hand).
 - The local cluster uses **5 MB chunks** (`Uploads__ChunkSizeBytes` in `values-local.yaml`, the S3 minimum part size), so a sample ORIS ZIP uploads in several parallel parts.
 
 **Still to do**
-1. **Browser test of the upload page, done by the user by hand** (the Chrome extension isn't installed): `upload.js` with 3 parallel chunks, progress, and resume after reselecting the file, against `https://datahub.localtest.me` with `.local\test-data\HIRO.zip` (3 parts of 5 MB). An invitation for it exists (company code 400000010, email in Mailpit).
-2. Commit, PR into `main`.
+1. Commit, PR into `main`.
 
 ### Step 6: live checks (done 2026-10-01)
 **Done (2026-10-01)**
