@@ -11,6 +11,8 @@ environment: Local
 config:
   Invitations__PortalBaseUrl: https://datahub.localtest.me
   Database__CompatibilityLevel: "160"
+  # 5 MB (the S3 minimum part size) instead of 16 MB, so a sample ORIS ZIP uploads in several parallel parts.
+  Uploads__ChunkSizeBytes: "5242880"
   S3__Bucket: datahub-uploads
   S3__ServiceUrl: http://seaweedfs:8333
   S3__ForcePathStyle: "true"

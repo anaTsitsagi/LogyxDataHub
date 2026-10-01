@@ -317,10 +317,11 @@ src/
 tests/
   DataHub.Oris.Tests, DataHub.Infrastructure.Tests, DataHub.Api.Tests, DataHub.Web.Tests,
   DataHub.Worker.Tests                                                                     [done]
-  (integration with real MSSQL/RabbitMQ/S3 – step 7, open)
+  (integration with real MSSQL/RabbitMQ/S3: scripts/local/smoke-test.ps1 – step 7)
 scripts/
   local/start-infra.ps1, local/stop-infra.ps1   local Mailpit, SeaweedFS, RabbitMQ        [done]
   local/k8s-up.ps1, local/k8s-down.ps1         local cluster: infrastructure + chart      [step 7]
+  local/smoke-test.ps1                         end-to-end check of a running DataHub      [step 7]
   build-images.ps1                                                                        [step 6]
   package-release.ps1, upload-sftp.ps1, load-test.ps1                                     [steps 8–9]
 deploy/
@@ -433,11 +434,12 @@ CLAUDE.md   points Claude Code sessions to this file
   - In-cluster Seq: logs and traces from web, api, worker and migrator; the worker's `process job` span is in the portal's upload trace; all five `datahub.*` metrics arrive; no event contains a raw link token.
   - `k8s-down.ps1` then `k8s-up.ps1`: the data survives (the invitation is still `processed`, the reports still answer).
 - Fixed on the way: RabbitMQ's first start and restarts (section 10).
+- **`scripts/local/smoke-test.ps1`** (the agreed form of the "integration tests against real MSSQL, RabbitMQ and S3"): the whole flow against a running DataHub (13 checks: invitation, OTP from Mailpit, chunked upload, job, three reports, unknown tenant 404, link token absent from Seq), exit code 0/1. Passed against the local cluster on 2026-10-02 (3 parts of 5 MB, job done 32 s after start). It refuses non-local hosts because it uses dev tokens.
+- The local cluster uses **5 MB chunks** (`Uploads__ChunkSizeBytes` in `values-local.yaml`, the S3 minimum part size), so a sample ORIS ZIP uploads in several parallel parts.
 
 **Still to do**
-1. **Browser test of the upload page** (`upload.js`: 3 parallel chunks, retries, resume after reselecting the file) against `https://datahub.localtest.me`, ideally with a ZIP larger than one 16 MB chunk. The scripted runs so far drove the portal API directly.
-2. **Integration tests against real MSSQL, RabbitMQ and S3**: decide the form (e.g. a committed end-to-end smoke script against the local cluster, or xUnit tests that target the cluster's services).
-3. Commit, PR into `main`.
+1. **Browser test of the upload page, done by the user by hand** (the Chrome extension isn't installed): `upload.js` with 3 parallel chunks, progress, and resume after reselecting the file, against `https://datahub.localtest.me` with `.local\test-data\HIRO.zip` (3 parts of 5 MB). An invitation for it exists (company code 400000010, email in Mailpit).
+2. Commit, PR into `main`.
 
 ### Step 6: live checks (done 2026-10-01)
 **Done (2026-10-01)**
@@ -670,6 +672,7 @@ powershell -ExecutionPolicy Bypass -File scripts\local\k8s-down.ps1 -Purge      
 - The certificate is self-signed (`.local\k8s\tls.crt`); browsers warn until it is trusted (8.3).
 - After rebuilding the images with the same version: `kubectl rollout restart deployment -n datahub-local` (the tag is unchanged, so Helm sees no change).
 - Logs: `kubectl logs -n datahub-local deploy/datahub-worker`; the migrator's: `kubectl logs -n datahub-local job/datahub-migrator`.
+- End-to-end check: `powershell -ExecutionPolicy Bypass -File scripts\local\smoke-test.ps1 -ZipPath .local\test-data\HIRO.zip` (zip an ORIS company folder into `.local\test-data` first; for `dotnet run`, pass `-Api`, `-Portal`, `-Mailpit` and `-Seq` with the localhost addresses).
 
 ### 6.6 Test the flow by hand
 1. Swagger https://localhost:7174/swagger → definition **"dev (local token)"** → `POST /dev/token` (pre-filled) → copy `access_token` → **Authorize**.
@@ -834,6 +837,7 @@ Run everything: `dotnet test LogyxDataHub.sln` (needs LocalDB; sample tests skip
 | EF Core warning: row limit without `OrderBy` in `JobRecovery` | Order stale jobs by `HeartbeatAt` |
 | PowerShell 5.1 turns a native command's stderr into a terminating error under `$ErrorActionPreference = "Stop"`, even when redirected | `Continue` inside the function where a failure is expected (`Test-Image` in `k8s-up.ps1`) |
 | Anaconda's `openssl` (first on PATH) has no `openssl.cnf` | Prefer Git for Windows' `openssl`, and pass a minimal `-config` |
+| PowerShell 5.1: a scriptblock as `ServerCertificateValidationCallback` fails at random ("connection was closed ... on a send"), because .NET calls it on a thread without a runspace; a method can't be cast to the delegate either | A small `Add-Type` class that installs a C# lambda (`smoke-test.ps1`) |
 | RabbitMQ in Kubernetes: the first start failed (`.erlang.cookie: eacces`), because the readiness probe runs as root and could create the cookie before the server | Run the pod as user 999 (`runAsUser`/`runAsGroup`) |
 | RabbitMQ crash-looped after a restart with `fsGroup: 999` ("Cookie file must be accessible by owner only"): fsGroup makes files group-readable on every mount | No `fsGroup` (local-path volumes are writable for any user) |
 | The link token reached Seq in the `RequestPath` property of ASP.NET Core's request scope (on "Email sent" during `POST /i/{token}`); the log-capture test only checked rendered messages | `RequestPathRedactor` Serilog enricher; unit test through a real MEL scope |
