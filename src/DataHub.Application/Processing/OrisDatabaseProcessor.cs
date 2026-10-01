@@ -56,9 +56,28 @@ public sealed class OrisDatabaseProcessor(
             accounts = await datasets.WriteAccountsAsync(datasetId, OrisReader.ReadAccountNames(table, accountNames.Name), ct);
         }
 
+        var converter = GelConverter.WithoutRateTable;
+        var ratesEntry = zip.Entries.FirstOrDefault(e => IsFile(e, OrisReader.RatesFile) && FolderOf(e) == folder);
+        if (ratesEntry is null)
+        {
+            logger.LogWarning("Rate.tps not found next to WIRING.TPS; foreign-currency lines need a rate on the line itself");
+        }
+        else
+        {
+            await using var table = await ExtractAsync(ratesEntry, ct);
+            converter = new GelConverter(OrisReader.ReadRates(table, ratesEntry.Name).ToList());
+        }
+
         int lines;
-        await using (var table = await ExtractAsync(journal, ct))
-            lines = await datasets.WriteJournalAsync(datasetId, OrisReader.ReadJournalLines(table, journal.Name), ct);
+        try
+        {
+            await using var table = await ExtractAsync(journal, ct);
+            lines = await datasets.WriteJournalAsync(datasetId, converter.Apply(OrisReader.ReadJournalLines(table, journal.Name)), ct);
+        }
+        catch (MissingRateException ex)
+        {
+            throw Invalid(ProcessingErrors.RatesMissing, ex.Message);
+        }
 
         if (lines == 0) throw Invalid(ProcessingErrors.EmptyJournal, "WIRING.TPS contains no records.");
 

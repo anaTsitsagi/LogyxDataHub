@@ -1,6 +1,7 @@
 using DataHub.Application;
 using DataHub.Application.Invitations;
 using DataHub.Application.Processing;
+using DataHub.Application.Reports;
 using DataHub.Application.Security;
 using DataHub.Application.Uploads;
 using DataHub.Application.Verification;
@@ -27,6 +28,7 @@ public static class InfrastructureRegistration
         services.Configure<OtpOptions>(configuration.GetSection(OtpOptions.Section));
         services.Configure<UploadOptions>(configuration.GetSection(UploadOptions.Section));
         services.Configure<ProcessingOptions>(configuration.GetSection(ProcessingOptions.Section));
+        services.Configure<BalanceSheetOptions>(configuration.GetSection(BalanceSheetOptions.Section));
         services.Configure<S3Options>(configuration.GetSection(S3Options.Section));
         services.Configure<RabbitMqOptions>(configuration.GetSection(RabbitMqOptions.Section));
         services.Configure<SmtpOptions>(configuration.GetSection(SmtpOptions.Section));
@@ -44,4 +46,8 @@ public static class InfrastructureRegistration
 
         return services;
     }
+
+    /// <summary>Readiness check: the database is reachable. Tagged "ready" for the /health/ready endpoint.</summary>
+    public static IHealthChecksBuilder AddDataHubReadiness(this IHealthChecksBuilder builder) =>
+        builder.AddDbContextCheck<DataHubDbContext>("database", tags: ["ready"]);
 }

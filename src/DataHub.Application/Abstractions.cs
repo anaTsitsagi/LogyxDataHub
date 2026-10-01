@@ -11,6 +11,9 @@ public interface IDataHubDb
     DbSet<OtpChallenge> OtpChallenges { get; }
     DbSet<Upload> Uploads { get; }
     DbSet<ProcessingJob> ProcessingJobs { get; }
+    DbSet<Dataset> Datasets { get; }
+    DbSet<Account> Accounts { get; }
+    DbSet<JournalEntry> JournalEntries { get; }
     Task<int> SaveChangesAsync(CancellationToken ct = default);
 }
 

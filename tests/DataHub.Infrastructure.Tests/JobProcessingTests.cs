@@ -136,7 +136,7 @@ public sealed class JobProcessingTests : IDisposable
     public async Task Hiro_database_is_imported_and_activated()
     {
         var file = Zip(("HIRO/WIRING.TPS", Sample("WIRING.TPS")), ("HIRO/Acc_name.tps", Sample("Acc_name.tps")),
-            ("HIRO/Notes.txt", "x"u8.ToArray()));
+            ("HIRO/Rate.tps", Sample("Rate.tps")), ("HIRO/Notes.txt", "x"u8.ToArray()));
         var s = await SeedAsync(file, withSha: false);
 
         Assert.Equal(JobOutcome.Succeeded, await ProcessAsync(s.Message));
@@ -155,6 +155,20 @@ public sealed class JobProcessingTests : IDisposable
         Assert.Equal(Convert.ToHexStringLower(SHA256.HashData(file)), (await db.Uploads.SingleAsync(u => u.Id == s.UploadId)).Sha256);
         Assert.Empty(Directory.EnumerateFiles(_tempDirectory));
         Assert.Empty(_email.Sent);
+
+        // Foreign-currency lines carry their GEL equivalent.
+        var usd = await db.JournalEntries.FirstAsync(j => j.DatasetId == dataset.Id && j.Currency == "USD");
+        Assert.NotNull(usd.ExchangeRate);
+        Assert.Equal(Math.Round(usd.Amount * usd.ExchangeRate!.Value, 2, MidpointRounding.AwayFromZero), usd.AmountGel);
+    }
+
+    [SampleFact(HiroFolder + @"\WIRING.TPS")]
+    public async Task Foreign_currency_lines_without_a_rate_table_fail_the_job()
+    {
+        var s = await SeedAsync(Zip(("HIRO/WIRING.TPS", Sample("WIRING.TPS"))));
+
+        Assert.Equal(JobOutcome.Failed, await ProcessAsync(s.Message));
+        Assert.Equal(ProcessingErrors.RatesMissing, (await StateAsync(s)).Job.ErrorCode);
     }
 
     [Fact]

@@ -1,5 +1,6 @@
 using DataHub.Application.Invitations;
 using DataHub.Application.Processing;
+using DataHub.Application.Reports;
 using DataHub.Application.Security;
 using DataHub.Application.Uploads;
 using DataHub.Application.Verification;
@@ -21,6 +22,8 @@ public static class ApplicationRegistration
         services.AddScoped<ProcessingNotifier>();
         services.AddScoped<JobProcessor>();
         services.AddScoped<JobRecovery>();
+
+        services.AddScoped<ReportService>();
         return services;
     }
 }

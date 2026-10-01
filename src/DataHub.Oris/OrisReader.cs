@@ -16,16 +16,27 @@ public sealed record OrisJournalLine(
     string Unit,
     string PostedBy,
     DateOnly? OperationDate,
-    DateOnly? PostingDate);
+    DateOnly? PostingDate)
+{
+    /// <summary>Exchange rate recorded on the line (ORIS CURS); null when ORIS left it to the daily rate table.</summary>
+    public decimal? ExchangeRate { get; init; }
+
+    /// <summary>Amount in GEL, as ORIS reports use it; set by <see cref="GelConverter"/>.</summary>
+    public decimal? AmountGel { get; init; }
+}
 
 /// <summary>One chart-of-accounts entry from ORIS <c>Acc_name.tps</c>.</summary>
 public sealed record OrisAccountName(OrisAccount? Account, string Raw, int Level, string Name, string Currency);
+
+/// <summary>One daily exchange rate from ORIS <c>Rate.tps</c>: <see cref="Rate"/> GEL per 1 unit of the currency.</summary>
+public sealed record OrisRate(string Currency, DateOnly Date, decimal Rate);
 
 /// <summary>Maps ORIS 5 TopSpeed tables to typed records.</summary>
 public static class OrisReader
 {
     public const string JournalFile = "WIRING.TPS";
     public const string AccountNamesFile = "Acc_name.tps";
+    public const string RatesFile = "Rate.tps";
 
     // WIRING field mapping (ORIS → DataHub). RANGE as entry number and REAL_DATE as posting date
     // follow the existing HIRO_WIRING table; confirm with the ORIS reference exports.
@@ -53,7 +64,22 @@ public static class OrisReader
                 Unit: r.GetString("VELU"),
                 PostedBy: r.GetString("USER_NAME"),
                 OperationDate: r.GetDate("DATE"),
-                PostingDate: r.GetDate("REAL_DATE"));
+                PostingDate: r.GetDate("REAL_DATE"))
+            {
+                ExchangeRate = r.GetDecimal("CURS") is > 0 and var rate ? rate : null,
+            };
+        }
+    }
+
+    public static IEnumerable<OrisRate> ReadRates(Stream stream, string fileName = RatesFile)
+    {
+        foreach (var r in TpsTableReader.ReadRecords(stream, fileName))
+        {
+            var date = r.GetDate("DATE");
+            var rate = r.GetDecimal("CURS") ?? 0;
+            var quantity = r.GetDecimal("QTY") is > 0 and var q ? q : 1;
+            if (date is { } d && rate > 0)
+                yield return new OrisRate(r.GetString("MON_TYPE"), d, rate / quantity);
         }
     }
 

@@ -142,8 +142,15 @@ public class JournalEntry
     public string? Credit { get; set; }
     public string CreditSub { get; set; } = "";
     public string CreditRaw { get; set; } = "";
+    /// <summary>Amount in <see cref="Currency"/>, as posted in ORIS.</summary>
     public decimal Amount { get; set; }
     public string Currency { get; set; } = "";
+
+    /// <summary>GEL equivalent (Amount × <see cref="ExchangeRate"/>); turnover and balance reports sum this.</summary>
+    public decimal AmountGel { get; set; }
+
+    /// <summary>GEL per unit of <see cref="Currency"/> used for <see cref="AmountGel"/>; null for GEL lines.</summary>
+    public decimal? ExchangeRate { get; set; }
     public string Description { get; set; } = "";
     public decimal? Quantity { get; set; }
     public string Unit { get; set; } = "";

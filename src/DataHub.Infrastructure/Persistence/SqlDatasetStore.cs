@@ -69,6 +69,8 @@ public sealed class SqlDatasetStore(DataHubDbContext db, ILogger<SqlDatasetStore
         table.Columns.Add(nameof(JournalEntry.CreditRaw), typeof(string));
         table.Columns.Add(nameof(JournalEntry.Amount), typeof(decimal));
         table.Columns.Add(nameof(JournalEntry.Currency), typeof(string));
+        table.Columns.Add(nameof(JournalEntry.AmountGel), typeof(decimal));
+        table.Columns.Add(nameof(JournalEntry.ExchangeRate), typeof(decimal));
         table.Columns.Add(nameof(JournalEntry.Description), typeof(string));
         table.Columns.Add(nameof(JournalEntry.Quantity), typeof(decimal));
         table.Columns.Add(nameof(JournalEntry.Unit), typeof(string));
@@ -81,7 +83,7 @@ public sealed class SqlDatasetStore(DataHubDbContext db, ILogger<SqlDatasetStore
             datasetId, l.RecordNumber, l.DocumentNumber, l.EntryNumber,
             l.Debit?.Code, l.Debit?.Sub ?? "", l.DebitRaw,
             l.Credit?.Code, l.Credit?.Sub ?? "", l.CreditRaw,
-            l.Amount, l.Currency, l.Description, l.Quantity, l.Unit, l.PostedBy,
+            l.Amount, l.Currency, GelAmount(l), l.ExchangeRate, l.Description, l.Quantity, l.Unit, l.PostedBy,
             l.OperationDate?.ToDateTime(TimeOnly.MinValue), l.PostingDate?.ToDateTime(TimeOnly.MinValue),
         }), ct);
 
@@ -89,6 +91,11 @@ public sealed class SqlDatasetStore(DataHubDbContext db, ILogger<SqlDatasetStore
             .ExecuteUpdateAsync(s => s.SetProperty(d => d.JournalEntryCount, total), ct);
         return total;
     }
+
+    private static decimal GelAmount(OrisJournalLine line) =>
+        line.AmountGel ?? (GelConverter.IsNational(line.Currency)
+            ? line.Amount
+            : throw new InvalidOperationException($"Record {line.RecordNumber} is in {line.Currency} but has no GEL amount; apply GelConverter first."));
 
     public async Task<bool> ActivateAsync(Guid datasetId, CancellationToken ct)
     {

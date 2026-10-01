@@ -135,8 +135,14 @@ public class DatasetLifecycleTests(SqlDatabaseFixture fixture)
         var store = Store(db);
 
         var id = await store.CreateStagingAsync(company, Guid.NewGuid(), default);
+        List<OrisJournalLine> lines;
         await using (var stream = File.OpenRead(Samples.PathOf("WIRING.TPS")))
-            Assert.Equal(16_781, await store.WriteJournalAsync(id, OrisReader.ReadJournalLines(stream), default));
+            lines = OrisReader.ReadJournalLines(stream).ToList();
+        // The reference file comes without its Rate.tps. This test checks that original amounts are
+        // stored faithfully, so any rate will do; GEL figures are verified in HiroReportTests.
+        var placeholderRates = new GelConverter(lines.Select(l => l.Currency).Where(c => !GelConverter.IsNational(c))
+            .Distinct().Select(c => new OrisRate(c, DateOnly.MinValue, 1m)));
+        Assert.Equal(16_781, await store.WriteJournalAsync(id, placeholderRates.Apply(lines), default));
         Assert.True(await store.ActivateAsync(id, default));
 
         Assert.Equal((id, 10_525_411.79m), await ServedDataAsync(company));

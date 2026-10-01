@@ -17,6 +17,9 @@ public sealed class ApiAuthOptions
     /// <summary>Scope required to manage invitations, if TBC's IdP issues scopes.</summary>
     public string? InvitationsScope { get; set; }
 
+    /// <summary>Scope required to read reports, if TBC's IdP issues scopes.</summary>
+    public string? ReportsScope { get; set; }
+
     /// <summary>Local environment only: symmetric key for self-issued test tokens.</summary>
     public string? DevSigningKey { get; set; }
 }
@@ -26,6 +29,7 @@ public static class ApiAuthentication
     public const string LocalEnvironment = "Local";
     public const string DevIssuer = "datahub-local";
     public const string InvitationsPolicy = "invitations";
+    public const string ReportsPolicy = "reports";
 
     public static IServiceCollection AddApiAuthentication(this IServiceCollection services, IConfiguration configuration, IHostEnvironment env)
     {
@@ -61,6 +65,12 @@ public static class ApiAuthentication
                 p.RequireAuthenticatedUser();
                 if (!string.IsNullOrEmpty(o.InvitationsScope))
                     p.RequireAssertion(ctx => HasScope(ctx.User, o.InvitationsScope));
+            })
+            .AddPolicy(ReportsPolicy, p =>
+            {
+                p.RequireAuthenticatedUser();
+                if (!string.IsNullOrEmpty(o.ReportsScope))
+                    p.RequireAssertion(ctx => HasScope(ctx.User, o.ReportsScope));
             });
 
         return services;

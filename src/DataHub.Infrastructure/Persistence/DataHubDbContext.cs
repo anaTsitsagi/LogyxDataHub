@@ -106,6 +106,8 @@ public class DataHubDbContext(DbContextOptions<DataHubDbContext> options) : DbCo
             e.Property(x => x.DebetRaw).HasMaxLength(25);
             e.Property(x => x.CreditRaw).HasMaxLength(25);
             e.Property(x => x.Amount).HasPrecision(19, 4);
+            e.Property(x => x.AmountGel).HasPrecision(19, 4);
+            e.Property(x => x.ExchangeRate).HasPrecision(19, 8);
             e.Property(x => x.Quantity).HasPrecision(19, 4);
             e.Property(x => x.Currency).HasMaxLength(3).IsUnicode(false);
             e.Property(x => x.Description).HasMaxLength(200);
