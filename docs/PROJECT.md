@@ -1,6 +1,6 @@
 # Logyx DataHub for TBC Bank: project reference
 
-_Last updated: 2026-10-01. Steps 0–5a are merged into `main` (PR #1). Step 6 is done on `feature/step6-observability`, in review as PR #2._
+_Last updated: 2026-10-02. Steps 0–6 are merged into `main` (PR #1, PR #2). Step 7 is done on `feature/step7-local-k8s`, in review as PR #3._
 
 **This file is the single reference for the project:** context, requirements, every decision, architecture, status per step, how to run it, open items and lessons learned.
 - Read it at the start of any work session.
@@ -87,6 +87,8 @@ Logyx must also provide TBC with a **testing environment**.
 | Local OTLP receiver (step 6) | 2026-10-01: **Seq for Windows** (`winget install Datalust.Seq`), the same tool step 7 uses |
 | Rancher Desktop | 2026-10-01: **install now**, so the images are built and checked within step 6 |
 | Branch for step 6 | 2026-10-01: PR #1 was merged; step 6 runs on a **new branch `feature/step6-observability` from `main`** |
+| Merging PR #2 | 2026-10-01: at the user's request, **Claude merged PR #2** through the GitHub API (merge commit, like PR #1) |
+| Branch for step 7 | 2026-10-01: **`feature/step7-local-k8s` from `main`** after PR #2 was merged |
 
 ### 3.2 Technical choices made during the build (the user can revisit any of them)
 
@@ -255,6 +257,21 @@ Logyx must also provide TBC with a **testing environment**.
 - The root `.dockerignore` lets only the app projects under `src/` into the build context. It also excludes `appsettings.Local.json`, launchSettings, bin/obj and every data-file type.
 - `scripts/build-images.ps1 -Version x.y.z` builds `datahub-<app>:x.y.z`; the version also goes into the assemblies (and so `service.version`).
 
+**Local Kubernetes and Helm chart (step 7)**
+- `deploy/helm/datahub`: **one Deployment template** loops over `apps.web`, `apps.api` and `apps.worker` (like the one Dockerfile, so they can't drift apart). Services for web and api, one Ingress with both hosts, optional worker HPA (`apps.worker.autoscaling`).
+- **Migrator as a Helm `pre-install,pre-upgrade` hook Job**: the apps roll out only after migrations succeed. A hook runs before the chart's ConfigMap exists, so its settings are set in the Job itself.
+- **Secrets**: the chart never holds secret values. It reads an existing Secret (`secrets.existingSecret`, default `datahub-secrets`) whose **keys are the environment variable names** (`ConnectionStrings__DataHub`, `Security__SigningKey`, `S3__AccessKey`, `S3__SecretKey`, `RabbitMq__Uri`, `Smtp__Username`, `Smtp__Password`, `Otlp__Headers`, `Auth__DevSigningKey`). Each app lists the keys it reads (`apps.*.secretKeys`, all optional).
+- Non-secret settings: the `config` map (a ConfigMap loaded with `envFrom`) plus `apps.*.env`. A config change restarts the pods (checksum annotation).
+- **Pods**: non-root user 1654, read-only root filesystem, all capabilities dropped, `RuntimeDefault` seccomp, no service account token, `/tmp` as an `emptyDir` with a size limit (worker 25 Gi by default for ZIPs and extracted TPS files). Startup, liveness and readiness probes on the step 6 health endpoints. Worker grace period 40 s (the app hands a job back within 25 s).
+- **Behind the ingress**: web and api set `ASPNETCORE_FORWARDEDHEADERS_ENABLED=true`, so the HTTPS-only `__Host-` cookies, antiforgery and per-IP rate limits see the client's scheme and address. ASP.NET Core then trusts forwarded headers from any proxy, which is fine because the pods are only reachable through the ingress.
+- Ingress: Traefik needs no body-size setting; for ingress-nginx, `values.yaml` lists the annotations (64 MB body, no request buffering, 300 s timeouts).
+- **Local cluster** (`deploy/local`, namespace `datahub-local`): SQL Server 2022 (Developer, 2 GB memory limit), RabbitMQ 4.3 with **quorum** queues (like production; `dotnet run` uses classic), SeaweedFS (S3 with SSE), Mailpit, Seq. Each stateful service has a volume (k3s local-path).
+- `values-local.yaml`: environment `Local` (dev tokens; `appsettings.Local.json` isn't in the images), `pullPolicy: Never` (k3s uses the Docker engine's images directly), hosts **`datahub.localtest.me`** and **`api.datahub.localtest.me`** (public DNS → 127.0.0.1) over HTTPS only (Traefik `websecure`); tool UIs at `seq.`, `mailpit.` and `rabbitmq.localtest.me` over HTTP.
+- `scripts/local/k8s-up.ps1` generates the passwords and keys **once** into `.local\k8s\secrets.json` (gitignored; the volumes depend on them), plus a self-signed certificate for both hosts, and creates the Secrets. It only runs against the `rancher-desktop` context. The SMS outbox is a host folder (`.local\sms-outbox-k8s`, mounted through the WSL VM's `/mnt/c`).
+- No `values-tbc.yaml` yet: `values.yaml` holds production-like defaults until TBC's registry, hosts, ingress class and secrets are known (step 9).
+- **Dropped: `docker compose` for the inner loop.** `scripts/local/start-infra.ps1` already runs the infrastructure natively, and the Windows Docker CLI doesn't work on this PC (6.4).
+- WSL is not capped with `.wslconfig`: the VM gets 7.9 GB and 4 CPUs by default, enough for the whole stack.
+
 **Configuration and secrets**
 - `appsettings.json` holds **non-secret defaults only**. Secrets come from environment variables or Kubernetes Secrets, e.g. `ConnectionStrings__DataHub`, `Security__SigningKey`, `S3__SecretKey`, `RabbitMq__Uri`.
 - `appsettings.Local.json` holds **published, local-only** values: LocalDB, S3 `localhost:9000` (minioadmin/minioadmin, served by SeaweedFS), RabbitMQ `localhost:5672` (guest), SMTP `localhost:1025`, outbox `../../.local/sms-outbox`, worker temp `../../.local/worker-tmp`, portal links `https://localhost:7049`.
@@ -300,9 +317,11 @@ src/
 tests/
   DataHub.Oris.Tests, DataHub.Infrastructure.Tests, DataHub.Api.Tests, DataHub.Web.Tests,
   DataHub.Worker.Tests                                                                     [done]
-  (integration with real MSSQL/RabbitMQ/S3 containers – step 7)
+  (integration with real MSSQL/RabbitMQ/S3: scripts/local/smoke-test.ps1 – step 7)
 scripts/
   local/start-infra.ps1, local/stop-infra.ps1   local Mailpit, SeaweedFS, RabbitMQ        [done]
+  local/k8s-up.ps1, local/k8s-down.ps1         local cluster: infrastructure + chart      [step 7]
+  local/smoke-test.ps1                         end-to-end check of a running DataHub      [step 7]
   build-images.ps1                                                                        [step 6]
   package-release.ps1, upload-sftp.ps1, load-test.ps1                                     [steps 8–9]
 deploy/
@@ -310,8 +329,9 @@ deploy/
                       non-root); .dockerignore at the repo root                           [step 6]
   helm/datahub/  web, api, worker Deployments, migrator Job, Services, Ingress,
                  ConfigMap/Secret refs, optional HPA for the worker, requests/limits      [step 7]
-  helm/values-local.yaml, values-tbc.yaml
-  local/    mssql, rabbitmq, seaweedfs (S3), mailpit, seq (OTLP receiver)                 [step 7]
+                 values.yaml (production-like defaults), values-local.yaml                [step 7]
+                 values-tbc.yaml                                                          [step 9]
+  local/    mssql, rabbitmq, seaweedfs (S3), mailpit, seq (OTLP receiver), tool ingress  [step 7]
 docs/
   PROJECT.md (this file)                                                                  [done]
   resource-estimate.md, deployment-guide.md, configuration.md, API (from Swagger)         [steps 8–9]
@@ -398,14 +418,30 @@ CLAUDE.md   points Claude Code sessions to this file
 | 4 | Worker | **Done** | `41af8c0` |
 | 5 | TBC report APIs | **Done** | `e309f5e` |
 | 5a | Local run without Docker + Swagger for local testing | **Done**, verified live with HIRO | `4567109`, `1e6c3b1` |
-| 6 | Cross-cutting: OTLP logging, telemetry, Migrator, Dockerfiles | **Done, in review**: PR #2 | on `feature/step6-observability` |
-| 7 | Local k3s test environment + Helm chart | Planned | – |
+| 6 | Cross-cutting: OTLP logging, telemetry, Migrator, Dockerfiles | **Done**, merged (PR #2) | `67eadba` |
+| 7 | Local k3s test environment + Helm chart | **Done, in review**: PR #3 | on `feature/step7-local-k8s` |
 | 8 | Load test + resource estimate | Planned | – |
 | 9 | Release packaging + SFTP upload | Planned | – |
 
-**Resume point (2026-10-01):** step 6 is in progress on `feature/step6-observability` (from `main` after PR #1 was merged). All step 6 code is written and tested: **129 tests passing** (Oris 34, Infrastructure 54, Api 22, Web 17, Worker 2) and 0 build warnings. The images are built and run-tested, and the Seq live check is done. **PR #2** (https://github.com/anaTsitsagi/LogyxDataHub/pull/2) is open for review; after it is merged, step 7 starts.
+**Resume point (2026-10-02):** step 7 is in progress on `feature/step7-local-k8s` (from `main` after PR #2 was merged). The Helm chart, the local cluster, the smoke test and the browser test are done (see "▶ Step 7: status" below); in review as PR #3. No .NET code changed in step 7, so the tests are unchanged: **129 passing**, 0 build warnings.
 
-### ▶ Step 6: what is left
+### ▶ Step 7: status
+**Done (2026-10-02)**
+- `deploy/helm/datahub` (chart 0.1.0), `deploy/local` (infrastructure), `scripts/local/k8s-up.ps1` and `k8s-down.ps1` (details in 3.2 "Local Kubernetes and Helm chart").
+- **Verified on Rancher Desktop (k3s 1.36, Traefik):**
+  - `k8s-up.ps1` from nothing: infrastructure up, the migrator hook applied 4 migrations, web/api/worker ready. A second run is safe (Helm revision 2, migrator no-op, app pods untouched).
+  - Through the ingress over HTTPS: three full HIRO runs (invitation → OTP from Mailpit → chunked upload to SeaweedFS with SSE → quorum queue → worker → reports 200), jobs in 8–21 s. SMS goes to `.local\sms-outbox-k8s`.
+  - In-cluster Seq: logs and traces from web, api, worker and migrator; the worker's `process job` span is in the portal's upload trace; all five `datahub.*` metrics arrive; no event contains a raw link token.
+  - `k8s-down.ps1` then `k8s-up.ps1`: the data survives (the invitation is still `processed`, the reports still answer).
+- Fixed on the way: RabbitMQ's first start and restarts (section 10).
+- **`scripts/local/smoke-test.ps1`** (the agreed form of the "integration tests against real MSSQL, RabbitMQ and S3"): the whole flow against a running DataHub (13 checks: invitation, OTP from Mailpit, chunked upload, job, three reports, unknown tenant 404, link token absent from Seq), exit code 0/1. Passed against the local cluster on 2026-10-02 (3 parts of 5 MB, job done 32 s after start). It refuses non-local hosts because it uses dev tokens.
+- **Browser test of the upload page: passed** (done by the user in Chrome on 2026-10-02 against `https://datahub.localtest.me` with `.local	est-data\HIRO.zip`, 3 parts of 5 MB; the Chrome extension isn't installed, so it was done by hand).
+- The local cluster uses **5 MB chunks** (`Uploads__ChunkSizeBytes` in `values-local.yaml`, the S3 minimum part size), so a sample ORIS ZIP uploads in several parallel parts.
+
+**Still to do**
+1. Commit, PR into `main`.
+
+### Step 6: live checks (done 2026-10-01)
 **Done (2026-10-01)**
 - Serilog + OTLP/HTTP logs, OpenTelemetry traces and metrics through `DataHub.Hosting` in Web, Api, Worker and Migrator (details in 3.2 "Logging and telemetry").
 - Personal-data review of the log calls; the link token is redacted (also in the request-scope `RequestPath`, fixed after the Seq check); the phone number was removed from the SMS outbox file name.
@@ -504,7 +540,7 @@ What was built is in 3.2 ("Logging and telemetry", "Containers", the worker prob
   - Data Protection keys in the database, which wasn't in the plan but is needed for more than one web replica and a read-only filesystem
   - `DataHub.Hosting` as a new shared project
 
-### Step 7: Local test environment on the user's PC (planned)
+### Step 7: Local test environment on the user's PC (in progress; status above)
 - **Install:** Rancher Desktop (free; bundles k3s Kubernetes, the docker CLI, kubectl and helm, on WSL2). Docker is not installed today.
 - Cap WSL at about 10 GB RAM and 4 CPUs (`.wslconfig`).
 - **Namespace `datahub-local`:**
@@ -618,7 +654,27 @@ wsl -d rancher-desktop sh -c 'export PATH=/usr/sbin:/usr/bin:/sbin:/bin DOCKER_C
 ```
 From Git Bash, prefix `wsl` with `MSYS_NO_PATHCONV=1` so `/mnt/c/...` isn't rewritten. Pass connection strings to `docker run` with `--env-file` (they contain spaces).
 
-### 6.5 Test the flow by hand
+### 6.5 Run on the local Kubernetes cluster (Rancher Desktop)
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\local\k8s-up.ps1 -Version 0.1.0     # idempotent; the images must exist (6.4)
+powershell -ExecutionPolicy Bypass -File scripts\local\k8s-down.ps1                  # stop, keep the data
+powershell -ExecutionPolicy Bypass -File scripts\local\k8s-down.ps1 -Purge           # also delete the volumes
+```
+| What | Address |
+|---|---|
+| Portal | https://datahub.localtest.me |
+| API + Swagger | https://api.datahub.localtest.me/swagger (dev token as in 6.6) |
+| Seq | http://seq.localtest.me |
+| Mailpit | http://mailpit.localtest.me |
+| RabbitMQ UI | http://rabbitmq.localtest.me (user `datahub`, password in `.local\k8s\secrets.json`) |
+| SMS outbox | `.local\sms-outbox-k8s` |
+
+- The certificate is self-signed (`.local\k8s\tls.crt`); browsers warn until it is trusted (8.3).
+- After rebuilding the images with the same version: `kubectl rollout restart deployment -n datahub-local` (the tag is unchanged, so Helm sees no change).
+- Logs: `kubectl logs -n datahub-local deploy/datahub-worker`; the migrator's: `kubectl logs -n datahub-local job/datahub-migrator`.
+- End-to-end check: `powershell -ExecutionPolicy Bypass -File scripts\local\smoke-test.ps1 -ZipPath .local\test-data\HIRO.zip` (zip an ORIS company folder into `.local\test-data` first; for `dotnet run`, pass `-Api`, `-Portal`, `-Mailpit` and `-Seq` with the localhost addresses).
+
+### 6.6 Test the flow by hand
 1. Swagger https://localhost:7174/swagger → definition **"dev (local token)"** → `POST /dev/token` (pre-filled) → copy `access_token` → **Authorize**.
 2. `POST /invitations` (pre-filled example; change `companyCode` to get a separate company). Optional `Idempotency-Key`.
 3. Open the `link` from the response. Codes and links arrive in Mailpit; SMS go to `.local\sms-outbox\*.txt`.
@@ -727,6 +783,7 @@ Run everything: `dotnet test LogyxDataHub.sln` (needs LocalDB; sample tests skip
 - Confirm deleting the old untracked copy `source\repos\LogyxDataHub`.
 - Trust the HTTPS dev certificate (`dotnet dev-certs https --trust`).
 - Optional: install the GitHub CLI (`winget install GitHub.cli`, then `gh auth login`), so Claude can open PRs directly. (PR #1 for `feature/tbc-architecture` was merged.)
+- Optional: trust the local cluster's certificate, so browsers don't warn on `datahub.localtest.me`: `Import-Certificate -FilePath .local\k8s\tls.crt -CertStoreLocation Cert:\CurrentUser\Root` (Windows asks to confirm).
 - Step 6 installs are done (WSL, Rancher Desktop, Seq). Optional: protect Seq with a login (it has none and listens on 127.0.0.1 only; see 6.1).
 - Optional: fix Rancher Desktop's Windows bridge (see 6.4), e.g. reinstall or try another version, so `docker` and `scripts\build-images.ps1` work from Windows again. Not blocking: the images build inside the VM.
 
@@ -778,6 +835,11 @@ Run everything: `dotnet test LogyxDataHub.sln` (needs LocalDB; sample tests skip
 | Serilog quotes string values when it renders a message for other logger providers | Tests match `"GET" "/i/***"` |
 | Swagger's `"string"` placeholders produced a token without scopes (403) | `[DefaultValue]` defaults on `DevTokenRequest`; example body for `POST /invitations` |
 | EF Core warning: row limit without `OrderBy` in `JobRecovery` | Order stale jobs by `HeartbeatAt` |
+| PowerShell 5.1 turns a native command's stderr into a terminating error under `$ErrorActionPreference = "Stop"`, even when redirected | `Continue` inside the function where a failure is expected (`Test-Image` in `k8s-up.ps1`) |
+| Anaconda's `openssl` (first on PATH) has no `openssl.cnf` | Prefer Git for Windows' `openssl`, and pass a minimal `-config` |
+| PowerShell 5.1: a scriptblock as `ServerCertificateValidationCallback` fails at random ("connection was closed ... on a send"), because .NET calls it on a thread without a runspace; a method can't be cast to the delegate either | A small `Add-Type` class that installs a C# lambda (`smoke-test.ps1`) |
+| RabbitMQ in Kubernetes: the first start failed (`.erlang.cookie: eacces`), because the readiness probe runs as root and could create the cookie before the server | Run the pod as user 999 (`runAsUser`/`runAsGroup`) |
+| RabbitMQ crash-looped after a restart with `fsGroup: 999` ("Cookie file must be accessible by owner only"): fsGroup makes files group-readable on every mount | No `fsGroup` (local-path volumes are writable for any user) |
 | The link token reached Seq in the `RequestPath` property of ASP.NET Core's request scope (on "Email sent" during `POST /i/{token}`); the log-capture test only checked rendered messages | `RequestPathRedactor` Serilog enricher; unit test through a real MEL scope |
 | Seq as a non-admin process: HTTP.sys needs a URL reservation; first run needs an admin password or no-auth; `localhost` bound to `0.0.0.0` under Kestrel | `api.webServer=Kestrel`, `api.listenUris=http://127.0.0.1:5341`, `SEQ_FIRSTRUN_NOAUTHENTICATION=true` |
 | Rancher Desktop 1.24: Windows `docker` times out on the Hyper-V socket, VM DNS `192.168.127.1` times out, credential helpers hang | Build and run inside the VM with public DNS, a Linux-only PATH and an empty `DOCKER_CONFIG` (6.4) |

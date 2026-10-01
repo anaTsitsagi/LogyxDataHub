@@ -1,0 +1,52 @@
+# SQL Server 2022 for the local cluster. SA password: Secret datahub-local-infra (scripts/local/k8s-up.ps1).
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mssql
+spec:
+  serviceName: mssql
+  replicas: 1
+  selector:
+    matchLabels: { app: mssql }
+  template:
+    metadata:
+      labels: { app: mssql }
+    spec:
+      securityContext:
+        fsGroup: 10001
+      containers:
+        - name: mssql
+          image: mcr.microsoft.com/mssql/server:2022-latest
+          ports:
+            - { name: sql, containerPort: 1433 }
+          env:
+            - { name: ACCEPT_EULA, value: "Y" }
+            - { name: MSSQL_PID, value: Developer }
+            - { name: MSSQL_MEMORY_LIMIT_MB, value: "2048" }
+            - name: MSSQL_SA_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: datahub-local-infra, key: mssql-sa-password }
+          readinessProbe:
+            tcpSocket: { port: sql }
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 250m, memory: 1Gi }
+            limits: { memory: 2560Mi }
+          volumeMounts:
+            - { name: data, mountPath: /var/opt/mssql }
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests: { storage: 10Gi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mssql
+spec:
+  selector: { app: mssql }
+  ports:
+    - { name: sql, port: 1433, targetPort: sql }

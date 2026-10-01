@@ -1,0 +1,62 @@
+{{- if .Values.migrator.enabled }}
+{{- $ctx := dict "root" . "app" "migrator" }}
+# Runs before the apps on every install and upgrade; a failed migration fails the release.
+# It is a hook, so it runs before the chart's ConfigMap exists: its settings are set here directly.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "datahub.name" $ctx }}
+  labels:
+    {{- include "datahub.labels" $ctx | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "0"
+    # Keep the finished Job (and its logs) until the next release replaces it.
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  backoffLimit: {{ .Values.migrator.backoffLimit }}
+  activeDeadlineSeconds: {{ .Values.migrator.activeDeadlineSeconds }}
+  template:
+    metadata:
+      labels:
+        {{- include "datahub.labels" $ctx | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.pod.securityContext | nindent 8 }}
+      containers:
+        - name: migrator
+          image: {{ include "datahub.image" $ctx }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            {{- include "datahub.commonEnv" $ctx | nindent 12 }}
+            - name: Otlp__Endpoint
+              value: {{ .Values.config.Otlp__Endpoint | quote }}
+            - name: Otlp__ExportMetrics
+              value: "false"
+            {{- include "datahub.secretEnv" (dict "root" . "keys" (list "ConnectionStrings__DataHub" "Otlp__Headers")) | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.pod.containerSecurityContext | nindent 12 }}
+          resources:
+            {{- toYaml .Values.migrator.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi
+      {{- with .Values.pod.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.pod.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

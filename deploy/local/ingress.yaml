@@ -1,0 +1,21 @@
+# Web UIs of the local tools through k3s's Traefik (plain HTTP; *.localtest.me resolves to 127.0.0.1).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: local-tools
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+spec:
+  rules:
+    - host: seq.localtest.me
+      http:
+        paths:
+          - { path: /, pathType: Prefix, backend: { service: { name: seq, port: { name: http } } } }
+    - host: mailpit.localtest.me
+      http:
+        paths:
+          - { path: /, pathType: Prefix, backend: { service: { name: mailpit, port: { name: ui } } } }
+    - host: rabbitmq.localtest.me
+      http:
+        paths:
+          - { path: /, pathType: Prefix, backend: { service: { name: rabbitmq, port: { name: ui } } } }

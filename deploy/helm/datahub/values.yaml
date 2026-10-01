@@ -1,0 +1,130 @@
+# Defaults for a production-like install. values-local.yaml overrides them for the local cluster.
+# No secret values here: they come from an existing Secret (secrets.existingSecret).
+
+image:
+  # Registry prefix, e.g. "registry.example.ge/datahub"; empty = local images named datahub-<app>.
+  registry: ""
+  # Empty = .Chart.AppVersion.
+  tag: ""
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+# ASPNETCORE_ENVIRONMENT / DOTNET_ENVIRONMENT. "Local" turns on dev tokens and the dev Swagger document.
+environment: Production
+
+secrets:
+  # Created outside the chart (by TBC, or by scripts/local/k8s-up.ps1). Each key is the environment
+  # variable it becomes, e.g. ConnectionStrings__DataHub, Security__SigningKey, S3__SecretKey, RabbitMq__Uri.
+  existingSecret: datahub-secrets
+
+# Non-secret settings for every app (a ConfigMap, loaded as environment variables).
+config:
+  Invitations__PortalBaseUrl: ""
+  S3__Bucket: ""
+  S3__Region: eu-central-1
+  RabbitMq__QueueType: quorum
+  Smtp__Host: ""
+  Smtp__Port: "587"
+  Smtp__Security: StartTls
+  Smtp__From: ""
+  # OTLP/HTTP receiver base address; empty = console only. Otlp__Headers (e.g. an API key) goes in the Secret.
+  Otlp__Endpoint: ""
+  Otlp__ExportMetrics: "true"
+
+# Settings shared by web, api and worker pods.
+pod:
+  # Container port of every app (the image sets ASPNETCORE_HTTP_PORTS=8080).
+  port: 8080
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1654
+    runAsGroup: 1654
+    fsGroup: 1654
+    seccompProfile:
+      type: RuntimeDefault
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: ["ALL"]
+  podAnnotations: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# Optional host folder for the SMS outbox (local testing only; the real SMS gateway is still open with TBC).
+smsOutbox:
+  hostPath: ""
+
+apps:
+  web:
+    enabled: true
+    replicas: 2
+    # Behind the ingress: trust X-Forwarded-Proto/For so HTTPS-only cookies and per-IP rate limits work.
+    env:
+      ASPNETCORE_FORWARDEDHEADERS_ENABLED: "true"
+      RabbitMq__ClientName: datahub-web
+    secretKeys: [ConnectionStrings__DataHub, Security__SigningKey, S3__AccessKey, S3__SecretKey, RabbitMq__Uri, Smtp__Username, Smtp__Password, Otlp__Headers]
+    service: true
+    tmpSizeLimit: 1Gi
+    resources:
+      requests: { cpu: 100m, memory: 256Mi }
+      limits: { memory: 512Mi }
+  api:
+    enabled: true
+    replicas: 2
+    env:
+      ASPNETCORE_FORWARDEDHEADERS_ENABLED: "true"
+      RabbitMq__ClientName: datahub-api
+      # TBC's identity provider (OpenID Connect issuer); required outside the Local environment.
+      Auth__Authority: ""
+    secretKeys: [ConnectionStrings__DataHub, Security__SigningKey, S3__AccessKey, S3__SecretKey, RabbitMq__Uri, Smtp__Username, Smtp__Password, Otlp__Headers, Auth__DevSigningKey]
+    service: true
+    tmpSizeLimit: 1Gi
+    resources:
+      requests: { cpu: 100m, memory: 256Mi }
+      limits: { memory: 512Mi }
+  worker:
+    enabled: true
+    replicas: 1
+    env:
+      RabbitMq__ClientName: datahub-worker
+      Processing__TempDirectory: /tmp/datahub-worker
+    secretKeys: [ConnectionStrings__DataHub, Security__SigningKey, S3__AccessKey, S3__SecretKey, RabbitMq__Uri, Smtp__Username, Smtp__Password, Otlp__Headers]
+    service: false
+    # An in-flight job hands itself back within the app's 25 s shutdown timeout.
+    terminationGracePeriodSeconds: 40
+    # The ZIP and its extracted TPS files (Uploads limits: 2 GB compressed, 20 GB uncompressed).
+    tmpSizeLimit: 25Gi
+    resources:
+      requests: { cpu: 250m, memory: 512Mi }
+      limits: { memory: 2Gi }
+    autoscaling:
+      enabled: false
+      minReplicas: 1
+      maxReplicas: 4
+      targetCPUUtilizationPercentage: 70
+
+# Applies the EF Core migrations before every install and upgrade (Helm hook Job). The apps roll out only
+# if it succeeds.
+migrator:
+  enabled: true
+  backoffLimit: 2
+  activeDeadlineSeconds: 600
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { memory: 512Mi }
+
+ingress:
+  enabled: true
+  className: ""
+  # Uploads send 16 MB chunks (the part endpoint accepts up to 64 MB). For ingress-nginx, for example:
+  #   nginx.ingress.kubernetes.io/proxy-body-size: "64m"
+  #   nginx.ingress.kubernetes.io/proxy-request-buffering: "off"
+  #   nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+  #   nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+  annotations: {}
+  # TLS certificate Secret for both hosts; empty = the ingress controller's default certificate.
+  tlsSecretName: ""
+  portalHost: ""
+  apiHost: ""

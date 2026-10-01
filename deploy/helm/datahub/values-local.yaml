@@ -1,0 +1,44 @@
+# Local cluster (Rancher Desktop, namespace datahub-local); installed by scripts/local/k8s-up.ps1, which also
+# creates the Secret datahub-secrets and the TLS certificate. The infrastructure is in deploy/local.
+
+# Images built locally (scripts/build-images.ps1); the cluster uses the Docker engine's images directly.
+image:
+  pullPolicy: Never
+
+# Dev tokens (POST /dev/token) and the dev Swagger document; Auth__DevSigningKey comes from the Secret.
+environment: Local
+
+config:
+  Invitations__PortalBaseUrl: https://datahub.localtest.me
+  Database__CompatibilityLevel: "160"
+  # 5 MB (the S3 minimum part size) instead of 16 MB, so a sample ORIS ZIP uploads in several parallel parts.
+  Uploads__ChunkSizeBytes: "5242880"
+  S3__Bucket: datahub-uploads
+  S3__ServiceUrl: http://seaweedfs:8333
+  S3__ForcePathStyle: "true"
+  RabbitMq__QueueType: quorum
+  Smtp__Host: mailpit
+  Smtp__Port: "1025"
+  Smtp__Security: None
+  Smtp__From: datahub@localtest.me
+  Otlp__Endpoint: http://seq/ingest/otlp
+  Otlp__ExportMetrics: "true"
+
+apps:
+  web:
+    replicas: 1
+  api:
+    replicas: 1
+  worker:
+    replicas: 1
+    tmpSizeLimit: 5Gi
+
+ingress:
+  # k3s's Traefik. HTTPS only: the portal's __Host- cookies need it.
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+  tlsSecretName: datahub-tls
+  # *.localtest.me resolves to 127.0.0.1 in public DNS.
+  portalHost: datahub.localtest.me
+  apiHost: api.datahub.localtest.me
