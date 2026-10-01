@@ -1,12 +1,19 @@
 using DataHub.Application;
 using DataHub.Domain;
+using Microsoft.AspNetCore.DataProtection.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 
 namespace DataHub.Infrastructure.Persistence;
 
-public class DataHubDbContext(DbContextOptions<DataHubDbContext> options) : DbContext(options), IDataHubDb
+public class DataHubDbContext(DbContextOptions<DataHubDbContext> options) : DbContext(options), IDataHubDb, IDataProtectionKeyContext
 {
     public const string Schema = "datahub";
+
+    /// <summary>
+    /// The portal's ASP.NET Data Protection key ring (session and anti-forgery cookies). Shared through the
+    /// database so every web replica can read cookies issued by another, and sessions survive restarts.
+    /// </summary>
+    public DbSet<DataProtectionKey> DataProtectionKeys => Set<DataProtectionKey>();
 
     public DbSet<Company> Companies => Set<Company>();
     public DbSet<Invitation> Invitations => Set<Invitation>();

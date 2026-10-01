@@ -4,16 +4,20 @@ using System.Text.Json.Serialization;
 using System.Text.Unicode;
 using Microsoft.Extensions.WebEncoders;
 using DataHub.Application;
+using DataHub.Hosting;
 using DataHub.Infrastructure;
 using DataHub.Web.Portal;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Mvc;
 
 var builder = WebApplication.CreateBuilder(args);
 
+builder.AddDataHubObservability("datahub-web");
 builder.Services.AddDataHubApplication();
 builder.Services.AddDataHubInfrastructure(builder.Configuration);
+builder.Services.AddDataHubDataProtection("datahub-web");
 
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme).AddCookie(o =>
 {
@@ -46,7 +50,7 @@ builder.Services.AddControllersWithViews(o => o.Filters.Add(new AutoValidateAnti
 // Emit Georgian as-is instead of &#x....; entities (Razor encodes non-Latin text by default).
 builder.Services.Configure<WebEncoderOptions>(o => o.TextEncoderSettings = new TextEncoderSettings(UnicodeRanges.All));
 builder.Services.AddPortalRateLimits();
-builder.Services.AddHealthChecks();
+builder.Services.AddHealthChecks().AddDataHubReadiness();
 
 var app = builder.Build();
 
@@ -64,12 +68,16 @@ app.Use(async (ctx, next) =>
     await next();
 });
 app.UseStaticFiles();
+app.UseDataHubRequestLogging(ctx => ctx.User.TenantId());
 app.UseRouting();
 app.UseRateLimiter();
 app.UseAuthentication();
+app.UseTenantLogContext(ctx => ctx.User.TenantId());
 app.UseAuthorization();
 
-app.MapHealthChecks("/health/live").AllowAnonymous();
+// Liveness runs no checks (the process answers); readiness also needs the database.
+app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false }).AllowAnonymous();
+app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = c => c.Tags.Contains("ready") }).AllowAnonymous();
 app.MapControllers();
 
 app.Run();

@@ -11,7 +11,11 @@ namespace DataHub.Worker;
 /// Consumes processing jobs one at a time (prefetch 1, manual ack). A message is acknowledged only
 /// after the job's outcome is saved in the database, so a crash leads to redelivery, not loss.
 /// </summary>
-public sealed class JobConsumer(RabbitMqConnection connection, IServiceScopeFactory scopes, ILogger<JobConsumer> logger) : BackgroundService
+public sealed class JobConsumer(
+    RabbitMqConnection connection,
+    IServiceScopeFactory scopes,
+    WorkerHealth health,
+    ILogger<JobConsumer> logger) : BackgroundService
 {
     private static readonly TimeSpan UnexpectedErrorDelay = TimeSpan.FromSeconds(15);
     private Task _inFlight = Task.CompletedTask;
@@ -29,6 +33,7 @@ public sealed class JobConsumer(RabbitMqConnection connection, IServiceScopeFact
             return _inFlight;
         };
         await channel.BasicConsumeAsync(connection.Options.Queue, autoAck: false, consumer, stoppingToken);
+        health.ConsumerChannel = channel;
         logger.LogInformation("Consuming jobs from queue {Queue}", connection.Options.Queue);
 
         try
@@ -40,6 +45,7 @@ public sealed class JobConsumer(RabbitMqConnection connection, IServiceScopeFact
         }
 
         // Let the current job return itself to the queue before the channel closes.
+        health.ConsumerChannel = null;
         await _inFlight;
         await channel.CloseAsync(CancellationToken.None);
         await channel.DisposeAsync();

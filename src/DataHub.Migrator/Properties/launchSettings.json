@@ -1,10 +1,8 @@
 {
   "$schema": "https://json.schemastore.org/launchsettings.json",
   "profiles": {
-    "DataHub.Worker": {
+    "DataHub.Migrator": {
       "commandName": "Project",
-      "dotnetRunMessages": true,
-      "applicationUrl": "http://localhost:5290",
       "environmentVariables": {
         "DOTNET_ENVIRONMENT": "Local"
       }

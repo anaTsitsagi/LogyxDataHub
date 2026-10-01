@@ -9,6 +9,7 @@ using DataHub.Infrastructure.Messaging;
 using DataHub.Infrastructure.Notifications;
 using DataHub.Infrastructure.Persistence;
 using DataHub.Infrastructure.Storage;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -19,9 +20,7 @@ public static class InfrastructureRegistration
     /// <summary>Registers persistence, S3, RabbitMQ, email and SMS, with options bound from configuration.</summary>
     public static IServiceCollection AddDataHubInfrastructure(this IServiceCollection services, IConfiguration configuration)
     {
-        var database = configuration.GetSection("Database").Get<DatabaseOptions>() ?? new DatabaseOptions();
-        database.ConnectionString = configuration.GetConnectionString(DatabaseOptions.ConnectionStringName) ?? database.ConnectionString;
-        services.AddDataHubPersistence(database);
+        services.AddDataHubPersistence(DatabaseOptions.From(configuration));
 
         services.Configure<SecurityOptions>(configuration.GetSection(SecurityOptions.Section));
         services.Configure<InvitationOptions>(configuration.GetSection(InvitationOptions.Section));
@@ -44,6 +43,13 @@ public static class InfrastructureRegistration
             throw new InvalidOperationException($"SMS provider '{smsProvider}' is not supported yet (waiting for TBC's gateway API).");
         services.AddSingleton<ISmsSender, OutboxSmsSender>();
 
+        return services;
+    }
+
+    /// <summary>Keeps the Data Protection key ring in the database, shared by all replicas of an app.</summary>
+    public static IServiceCollection AddDataHubDataProtection(this IServiceCollection services, string applicationName)
+    {
+        services.AddDataProtection().SetApplicationName(applicationName).PersistKeysToDbContext<DataHubDbContext>();
         return services;
     }
 

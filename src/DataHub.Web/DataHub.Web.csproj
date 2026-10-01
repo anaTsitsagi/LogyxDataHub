@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\DataHub.Infrastructure\DataHub.Infrastructure.csproj" />
+    <ProjectReference Include="..\DataHub.Hosting\DataHub.Hosting.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

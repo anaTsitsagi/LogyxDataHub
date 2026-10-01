@@ -1,0 +1,24 @@
+# Only src/ is copied into images. Keep everything else, above all customer data and local tools, out of the build context.
+**
+
+!src/DataHub.Domain/**
+!src/DataHub.Oris/**
+!src/DataHub.Application/**
+!src/DataHub.Infrastructure/**
+!src/DataHub.Hosting/**
+!src/DataHub.Web/**
+!src/DataHub.Api/**
+!src/DataHub.Worker/**
+!src/DataHub.Migrator/**
+
+**/bin/
+**/obj/
+**/*.user
+**/appsettings.Local.json
+**/Properties/launchSettings.json
+**/*.tps
+**/*.TPS
+**/*.zip
+**/*.csv
+**/*.xlsx
+**/*.bak

@@ -1,6 +1,6 @@
 # Logyx DataHub for TBC Bank: project reference
 
-_Last updated: 2026-10-01. Branch `feature/tbc-architecture` (pushed to GitHub `anaTsitsagi/LogyxDataHub`, no PR yet)._
+_Last updated: 2026-10-01. Steps 0–5a are merged into `main` (PR #1). Step 6 is done on `feature/step6-observability`, in review as PR #2._
 
 **This file is the single reference for the project:** context, requirements, every decision, architecture, status per step, how to run it, open items and lessons learned.
 - Read it at the start of any work session.
@@ -52,8 +52,8 @@ Logyx must also provide TBC with a **testing environment**.
 
 | # | Requirement | How we meet it |
 |---|---|---|
-| 1 | Central logging through Serilog, sent as GELF or OTLP/HTTP | **OTLP/HTTP only** (user's decision), via `Serilog.Sinks.OpenTelemetry` (step 6) |
-| 2 | Containerized | A Dockerfile per app: multi-stage build, chiseled image, non-root user (step 6) |
+| 1 | Central logging through Serilog, sent as GELF or OTLP/HTTP | **OTLP/HTTP only** (user's decision), via `Serilog.Sinks.OpenTelemetry` (step 6; code done, live check pending) |
+| 2 | Containerized | `deploy/docker/Dockerfile`: multi-stage build, one target per app, chiseled image, non-root user (step 6; built and run-tested 2026-10-01: ~105 MB per image, user 1654) |
 | 3 | Updates delivered to TBC's SFTP, as a zipped Docker image and/or a Helm chart plus image | `package-release.ps1` + `upload-sftp.ps1` (step 9) |
 | 4 | MSSQL | EF Core 10 on SQL Server, `datahub` schema (done) |
 | 5 | AWS S3 | AWSSDK.S3 (done; verified live against SeaweedFS locally) |
@@ -84,6 +84,9 @@ Logyx must also provide TBC with a **testing environment**.
 | Order of work | Commit, then the parser spike, then step 2, step 3, step 4 (each confirmed by the user) |
 | Test locally before pushing | 2026-10-01: the user tested the portal and API locally, then asked to commit and push |
 | Project reference | 2026-10-01: this file lives in the repo (`docs/PROJECT.md`) so it can be read at any time |
+| Local OTLP receiver (step 6) | 2026-10-01: **Seq for Windows** (`winget install Datalust.Seq`), the same tool step 7 uses |
+| Rancher Desktop | 2026-10-01: **install now**, so the images are built and checked within step 6 |
+| Branch for step 6 | 2026-10-01: PR #1 was merged; step 6 runs on a **new branch `feature/step6-observability` from `main`** |
 
 ### 3.2 Technical choices made during the build (the user can revisit any of them)
 
@@ -121,7 +124,7 @@ Logyx must also provide TBC with a **testing environment**.
 - Row tables (`Accounts`, `JournalEntries`) use a **composite clustered key (DatasetId, Id)**. A dataset's rows are contiguous, which makes tenant-scoped reads and batch deletes cheap.
 - Money is `decimal(19,4)`. Float sums in the old code were a bug.
 - **SqlBulkCopy in batches of 10,000 rows**, so memory is bounded whatever the file size.
-- **Nothing applies migrations at startup** (until the Migrator in step 6). Locally: `dotnet ef database update` (see section 6).
+- **The apps never apply migrations.** `DataHub.Migrator` does (`DatabaseMigrator`; later a Helm pre-install/pre-upgrade Job). It creates the database if missing, logs what it applies, and exits 1 on failure. EF Core takes a database lock while migrating, so concurrent runs are safe. Its connection needs DDL rights; the apps' connections don't.
 - **Dataset lifecycle:**
   - Staging → Active, or Superseded/Failed.
   - Activation is one transaction with an `UPDLOCK, HOLDLOCK` on the company row.
@@ -183,7 +186,7 @@ Logyx must also provide TBC with a **testing environment**.
   - document `v1` is the TBC contract, with bearer auth
   - document `dev` exists **only in the Local environment**; it adds `/dev/token` (pre-filled with working defaults via `[DefaultValue]`)
   - `OpenApiExamples.cs` (a schema filter) gives `POST /invitations` a valid **example** body. It is an example, not a default, because `v1` is the contract TBC reads.
-- Health: `/health/live` (no checks) and `/health/ready` (database).
+- Health: `/health/live` (no checks) and `/health/ready` (database). The portal has the same two endpoints.
 
 **Portal (DataHub.Web)**
 - ASP.NET Core MVC, Georgian first with English alongside.
@@ -194,6 +197,7 @@ Logyx must also provide TBC with a **testing environment**.
 - Rate limiting: 20 requests per minute per IP on the anonymous verification pages.
 - Georgian is output as-is (`UnicodeRanges.All`), not as HTML entities.
 - Friendly error pages are shown for browser navigation only; the JSON upload API keeps its raw status codes.
+- **Data Protection keys** (which encrypt the session and anti-forgery cookies) are stored in the database table `datahub.DataProtectionKeys` (migration `AddDataProtectionKeys`, application name `datahub-web`). Without this, each pod would have its own keys: a customer routed to another replica, or a pod restart, would end the session mid-upload. The keys are not encrypted at rest beyond the database's own protection (see 8.2).
 
 **Notifications**
 - Email: SMTP via MailKit; Mailpit locally.
@@ -220,6 +224,9 @@ Logyx must also provide TBC with a **testing environment**.
 - Unexpected handler errors (e.g. the database is unreachable): pause 15 s, then nack with requeue. The delivery limit dead-letters a message that keeps failing.
 - Unreadable messages are rejected straight to the DLQ.
 - Purge of inactive datasets runs every 15 minutes.
+- **Probes (step 6):** the worker is a small web host (port 8080 in containers, `http://localhost:5290` locally) serving only health endpoints. An exec probe isn't possible because chiseled images have no shell.
+  - `/health/live`: the maintenance loop ran within `Processing:LivenessTimeout` (15 min; it keeps looping even when the database or broker is down, so a stopped loop means the process is stuck).
+  - `/health/ready`: the database is reachable and the RabbitMQ consumer channel is open.
 - **Uploaded ZIPs are kept in S3** after processing, pending TBC's retention rule. The plan is an S3 lifecycle rule; incomplete multipart uploads are also aborted by a lifecycle rule.
 
 **Reports** (`DataHub.Application/Reports`, `ReportsController`)
@@ -229,6 +236,24 @@ Logyx must also provide TBC with a **testing environment**.
 - **Journal:** the response is a JSON array of lines in their own currency plus `amountGel`. Paging in the `X-Total-Count`, `X-Page`, `X-Page-Size` and `X-Total-Pages` headers; page size max 500; stable order (date, entry number, id).
 - **Turnover:** rows for every class, group, account and sub-account level, with name and level fields; opening, turnover and closing; all amounts in GEL.
 - **Balance sheet:** accounts map to lines by longest prefix; the mapping is configurable at `Reports:BalanceSheet:Lines`. **The default mapping needs review by an accountant** (see 8.2).
+
+**Logging and telemetry (step 6, `DataHub.Hosting`)**
+- One registration for every host: `builder.AddDataHubObservability("datahub-<app>")`.
+- **Serilog** writes the console and, when `Otlp:Endpoint` is set, **OTLP/HTTP protobuf** to `{Endpoint}/v1/logs`. In containers (`DOTNET_RUNNING_IN_CONTAINER`) the console is compact JSON; locally it is readable text.
+- **OpenTelemetry traces** (ASP.NET Core, HttpClient, SqlClient, AWS S3, RabbitMQ.Client's own sources, and DataHub's `process job` span) and **metrics** (ASP.NET Core, HttpClient, runtime, DataHub meter) go to `{Endpoint}/v1/traces` and `/v1/metrics`. Nothing is registered when no endpoint is set.
+- RabbitMQ.Client 7 carries the trace context in message headers, so a worker job joins the trace of the upload that queued it. `CorrelationId` (the upload's trace id) is on every job log line.
+- DataHub metrics (`DataHubTelemetry`): `datahub.job.duration` (s) and `datahub.jobs.finished` (tags `outcome`, `error.code`), `datahub.import.journal_lines`, `datahub.uploads.completed`, `datahub.uploads.bytes`.
+- Settings: `Otlp:Endpoint`, `Otlp:Headers` (`key=value,key2=value2`, from a Secret) and `Otlp:ExportMetrics` (default on; Seq 2026.1 accepts OTLP metrics, checked live, so it is on locally too). Resource attributes: `service.name`, `service.version`, `service.instance.id` (the pod name) and `deployment.environment.name`.
+- Log levels: the `Serilog:MinimumLevel` section, which replaces the old `Logging:LogLevel` (e.g. `Serilog__MinimumLevel__Default=Debug`). ASP.NET Core, EF Core and HttpClient are at Warning.
+- **One request line per HTTP request** (`UseDataHubRequestLogging`), with `TenantId` (API: the `X-Tenant-Id` header; portal: the session) and `CorrelationId` on every line of the request.
+- **Personal data review:** log calls use ids only. Fixed: the SMS outbox file name contained the phone number. **The link token in `/i/{token}` is redacted to `/i/***`** in request logs and trace `url.path` (`SensitiveData.RedactPath`), and in the `RequestPath` property that ASP.NET Core's request scope puts on *every* log written during a request (`RequestPathRedactor` enricher; found in the Seq live check); ASP.NET Core's own request logs are off (Warning).
+
+**Containers (step 6)**
+- `deploy/docker/Dockerfile`, **one file with a target per app** (`web`, `api`, `worker`, `migrator`) and one shared build stage that publishes all four. This replaces the planned four separate files, so they can't drift apart.
+- Runtime image: `mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled-extra`. It is chiseled (no shell or package manager); "extra" adds ICU and tzdata, needed by SqlClient and culture-aware formatting. It runs as user 1654 on port 8080 with `DOTNET_GCHeapHardLimitPercent=4B` (75%).
+- Read-only root filesystem works: temp files go to `/tmp` (an emptyDir in Kubernetes), and the portal's key ring is in the database.
+- The root `.dockerignore` lets only the app projects under `src/` into the build context. It also excludes `appsettings.Local.json`, launchSettings, bin/obj and every data-file type.
+- `scripts/build-images.ps1 -Version x.y.z` builds `datahub-<app>:x.y.z`; the version also goes into the assemblies (and so `service.version`).
 
 **Configuration and secrets**
 - `appsettings.json` holds **non-secret defaults only**. Secrets come from environment variables or Kubernetes Secrets, e.g. `ConnectionStrings__DataHub`, `Security__SigningKey`, `S3__SecretKey`, `RabbitMq__Uri`.
@@ -242,6 +267,7 @@ Logyx must also provide TBC with a **testing environment**.
 - `WebApplicationFactory` for the API and portal tests.
 - Fakes for SMS, email, the publisher and S3 (with multipart semantics and simulated download failure).
 - Sample-file tests are skipped when the sample is missing. `DATAHUB_ORIS_SAMPLES` defaults to `Desktop\logyx`.
+- The API and portal test factories set `Otlp:Endpoint` to empty, so tests never send telemetry to a local Seq.
 
 ---
 
@@ -265,17 +291,23 @@ src/
   DataHub.Web             customer portal (MVC)                                              [done]
   DataHub.Api             Invitations API, /reports/*, /dev/token (Local), Swagger,
                           OpenApiExamples                                                    [done]
-  DataHub.Worker          RabbitMQ consumer + maintenance (recovery sweep, purge)            [done]
+  DataHub.Worker          RabbitMQ consumer + maintenance (recovery sweep, purge),
+                          health endpoints (WorkerHealth)                                    [done]
+  DataHub.Hosting         shared Serilog/OTLP + OpenTelemetry registration, request logging,
+                          SensitiveData (link-token redaction)                               [step 6]
   DataHub.Migrator        console app applying EF migrations (Helm pre-install Job)          [step 6]
   LogyxDataHub            legacy API (kept for reference; its logic is ported in step 5)
 tests/
-  DataHub.Oris.Tests, DataHub.Infrastructure.Tests, DataHub.Api.Tests, DataHub.Web.Tests   [done]
+  DataHub.Oris.Tests, DataHub.Infrastructure.Tests, DataHub.Api.Tests, DataHub.Web.Tests,
+  DataHub.Worker.Tests                                                                     [done]
   (integration with real MSSQL/RabbitMQ/S3 containers – step 7)
 scripts/
   local/start-infra.ps1, local/stop-infra.ps1   local Mailpit, SeaweedFS, RabbitMQ        [done]
-  build-images.ps1, package-release.ps1, upload-sftp.ps1, load-test.ps1                   [steps 7–9]
+  build-images.ps1                                                                        [step 6]
+  package-release.ps1, upload-sftp.ps1, load-test.ps1                                     [steps 8–9]
 deploy/
-  docker/   Dockerfile per app (multi-stage, chiseled aspnet/runtime images, non-root)    [step 6]
+  docker/Dockerfile   one multi-stage file, targets web/api/worker/migrator (chiseled,
+                      non-root); .dockerignore at the repo root                           [step 6]
   helm/datahub/  web, api, worker Deployments, migrator Job, Services, Ingress,
                  ConfigMap/Secret refs, optional HPA for the worker, requests/limits      [step 7]
   helm/values-local.yaml, values-tbc.yaml
@@ -340,7 +372,8 @@ CLAUDE.md   points Claude Code sessions to this file
   - Description (STORY), Quantity, Unit (VELU), PostedBy (USER_NAME)
   - OperationDate (= DATE), PostingDate (= REAL_DATE)
   - indexes: (DatasetId, OperationDate), (DatasetId, Debet, OperationDate), (DatasetId, Credit, OperationDate)
-- **Migrations:** `InitialCreate`, `AddJobHeartbeat`, `AddJournalGelAmount`.
+- **DataProtectionKeys:** Id, FriendlyName, Xml (the portal's cookie key ring, shared by replicas).
+- **Migrations:** `InitialCreate`, `AddJobHeartbeat`, `AddJournalGelAmount`, `AddDataProtectionKeys`.
 
 ### 4.4 ORIS mapping
 - **WIRING.TPS:** DOC → DocumentNumber, RANGE → EntryNumber, DEBET/KREDIT → accounts, MONEY → Amount, MON_TYPE → Currency, CURS → ExchangeRate, STORY → Description, QTY → Quantity, VELU → Unit, USER_NAME → PostedBy, DATE → OperationDate, REAL_DATE → PostingDate.
@@ -365,12 +398,34 @@ CLAUDE.md   points Claude Code sessions to this file
 | 4 | Worker | **Done** | `41af8c0` |
 | 5 | TBC report APIs | **Done** | `e309f5e` |
 | 5a | Local run without Docker + Swagger for local testing | **Done**, verified live with HIRO | `4567109`, `1e6c3b1` |
-| 6 | Cross-cutting: OTLP logging, telemetry, Migrator, Dockerfiles | **Next** | – |
+| 6 | Cross-cutting: OTLP logging, telemetry, Migrator, Dockerfiles | **Done, in review**: PR #2 | on `feature/step6-observability` |
 | 7 | Local k3s test environment + Helm chart | Planned | – |
 | 8 | Load test + resource estimate | Planned | – |
 | 9 | Release packaging + SFTP upload | Planned | – |
 
-**Resume point (2026-10-01):** start step 6. Last full run: Oris 34, Infrastructure 53, Api 22, Web 6 = **115 tests, all passing, 0 build warnings**. The branch is pushed; a PR into `main` has not been opened yet.
+**Resume point (2026-10-01):** step 6 is in progress on `feature/step6-observability` (from `main` after PR #1 was merged). All step 6 code is written and tested: **129 tests passing** (Oris 34, Infrastructure 54, Api 22, Web 17, Worker 2) and 0 build warnings. The images are built and run-tested, and the Seq live check is done. **PR #2** (https://github.com/anaTsitsagi/LogyxDataHub/pull/2) is open for review; after it is merged, step 7 starts.
+
+### ▶ Step 6: what is left
+**Done (2026-10-01)**
+- Serilog + OTLP/HTTP logs, OpenTelemetry traces and metrics through `DataHub.Hosting` in Web, Api, Worker and Migrator (details in 3.2 "Logging and telemetry").
+- Personal-data review of the log calls; the link token is redacted (also in the request-scope `RequestPath`, fixed after the Seq check); the phone number was removed from the SMS outbox file name.
+- `DataHub.Migrator`, checked live: a fresh database got all migrations (exit 0), a second run was a no-op, an unreachable server gave exit 1. Applied `AddDataProtectionKeys` to the local `DataHub` database.
+- Health: `/health/live` and `/health/ready` on Web, Api and Worker.
+- The portal's Data Protection keys are in the database (replicas and restarts keep sessions).
+- `deploy/docker/Dockerfile`, `.dockerignore` and `scripts/build-images.ps1`.
+- Config review: everything comes from configuration, so it can be overridden by environment variables. `amqps://` URIs switch on TLS in RabbitMQ.Client (its `Uri` setter). S3 ServiceURL/region/path-style were already settings.
+
+**Still to do (needs the user's installs; see 8.3)**
+1. ~~Seq live check~~ **done 2026-10-01** (Seq 2026.1, two full HIRO runs through API → portal → S3 → RabbitMQ → worker → reports, job ~7 s):
+   - Logs and traces from `datahub-api`, `datahub-web` and `datahub-worker` arrive (OTLP/HTTP protobuf, `service.name` set).
+   - The worker's `process job` span is in the same trace as the portal's `POST portal-api/uploads/{uploadId}/complete` (with its SQL, S3 and `publish` spans); the worker's `CorrelationId` equals that trace id; `TenantId` is on the job lines.
+   - **Found and fixed a token leak:** the "Email sent" log line during `POST /i/{token}` carried the raw token in the `RequestPath` property of ASP.NET Core's request scope. Now redacted by the `RequestPathRedactor` enricher (unit test added). Second run: 0 of 129 events contain the token; every `RequestPath` under `/i/` is `/i/***`.
+   - **Seq accepts OTLP metrics** (`/v1/metrics` → 200; ASP.NET Core metrics queryable in Seq), so `ExportMetrics` is now `true` in the local config.
+2. ~~Build and run the images~~ **done 2026-10-01** (Rancher Desktop 1.24, moby 29.5; built inside the VM, see 6.4):
+   - `datahub-{web,api,worker,migrator}:0.1.0`: **104–105 MB compressed** each (~367 MB unpacked; the chiseled .NET runtime layer is shared). All run as **user 1654** (image config and `docker top`).
+   - Migrator against a throwaway `mssql/server:2022-latest`, `--read-only --tmpfs /tmp`: fresh database → 4 migrations applied, exit 0; second run → "up to date", exit 0; unreachable server → 6 retries, exit 1.
+   - Web, Api and Worker with `--read-only --tmpfs /tmp`, a real database and no RabbitMQ/S3/SMTP: Web and Api `/health/live` and `/health/ready` 200; Worker `/health/live` 200 and `/health/ready` 503 ("Not consuming from RabbitMQ"), as designed. No restarts; logs are compact JSON.
+3. ~~Commit the results and open a PR into `main`~~ **done 2026-10-01**: PR #2.
 
 ### Step 0: Repo hygiene (done)
 - Added a .NET `.gitignore`. Stopped tracking `bin/`, `obj/` and `.vs/` (that is why the diff against `main` shows ~127 deleted build files).
@@ -440,22 +495,14 @@ CLAUDE.md   points Claude Code sessions to this file
 - Local invitation links point at `https://localhost:7049`.
 - **Verified live end to end with HIRO:** invitation via API → link email in Mailpit → OTP email → 3-part upload (5 MB chunks) to SeaweedFS with AES256 → RabbitMQ → worker (about 6 s) → status "processed" in the portal and the API → all three reports → unknown tenant 404.
 
-### Step 6: Cross-cutting TBC requirements (next)
-- **Logging, OTLP/HTTP only:**
-  - Serilog + `Serilog.Sinks.OpenTelemetry`, OTLP/HTTP protobuf; only the endpoint and headers are configurable.
-  - A console sink is kept only as the container stdout fallback.
-  - Structured output with correlation ids (JobId, TenantId, CorrelationId; the worker already adds a log scope).
-  - **No personal data, OTPs or tokens in logs.**
-- **OpenTelemetry traces and metrics**, also over OTLP: ASP.NET Core, HttpClient, SqlClient, and custom job metrics (duration, rows, failures).
-- **The DataHub.Migrator** console app applies the EF migrations, run as a Helm pre-install/pre-upgrade Job.
-- **Config:** everything comes from env vars and Kubernetes Secrets; no secrets in images.
-- **Containers:**
-  - one multi-stage Dockerfile per app (web, api, worker, migrator)
-  - chiseled images, non-root, read-only root filesystem
-  - a writable `/tmp` emptyDir for the worker's temp files
-- **Health checks:** `/health/live` and `/health/ready` for web and api; a worker liveness mechanism.
-- RabbitMQ TLS is optional (the `amqps://` URI). S3 settings are configurable: ServiceURL, region and path-style.
-- `DOTNET_GCHeapHardLimitPercent` so the .NET heap respects the memory limits.
+### Step 6: Cross-cutting TBC requirements (in progress)
+What was built is in 3.2 ("Logging and telemetry", "Containers", the worker probes, the portal's Data Protection keys, the Migrator under "Database"). What is left is under "▶ Step 6: what is left" above.
+- Changes from the original plan:
+  - one Dockerfile with four targets instead of four files
+  - an extra setting `Otlp:ExportMetrics`
+  - the worker became a web host for its probes (chiseled images have no shell for an exec probe)
+  - Data Protection keys in the database, which wasn't in the plan but is needed for more than one web replica and a read-only filesystem
+  - `DataHub.Hosting` as a new shared project
 
 ### Step 7: Local test environment on the user's PC (planned)
 - **Install:** Rancher Desktop (free; bundles k3s Kubernetes, the docker CLI, kubectl and helm, on WSL2). Docker is not installed today.
@@ -513,11 +560,20 @@ CLAUDE.md   points Claude Code sessions to this file
 ### 6.1 One-time setup
 - **.NET 10 SDK** (installed). **LocalDB** `MSSQLLocalDB` (installed).
 - **Trust the HTTPS dev certificate** (Windows asks to confirm): `dotnet dev-certs https --trust`. Still open as of 2026-10-01; until then the browser warns.
-- **Create or update the database** (nothing applies migrations at startup yet):
+- **Create or update the database** with the Migrator (run it again after every pull that adds a migration):
   ```powershell
-  dotnet tool restore
-  dotnet ef database update --project src\DataHub.Infrastructure --startup-project src\DataHub.Infrastructure --connection "Server=(localdb)\MSSQLLocalDB;Database=DataHub;Integrated Security=true;TrustServerCertificate=true"
+  dotnet run --project src\DataHub.Migrator     # Local environment → LocalDB database DataHub; exit code 0 = up to date
   ```
+  `dotnet ef` (local tool, `dotnet tool restore`) is still used to *create* migrations.
+- **Seq** (OTLP receiver for logs, traces and metrics): `winget install Datalust.Seq` (elevated). The apps' `appsettings.Local.json` send to `http://localhost:5341/ingest/otlp`; if Seq isn't running, they still log to the console.
+  - On this PC the installer's setup wizard didn't register the Windows service, so Seq runs as a normal process with its data in `.local\seq` (gitignored). One-time config (no admin rights needed: Kestrel instead of HTTP.sys, which needs a `netsh http add urlacl`; loopback only, because there is no login):
+    ```powershell
+    $seq = "C:\Program Files\Seq\seq.exe"; $st = "$PWD\.local\seq"
+    & $seq config set -k api.webServer -v Kestrel --storage="$st"
+    & $seq config set -k api.listenUris -v "http://127.0.0.1:5341" --storage="$st"
+    ```
+  - Start it (after each reboot): `$env:SEQ_FIRSTRUN_NOAUTHENTICATION="true"; Start-Process $seq -ArgumentList "run","--nologo","--storage=`"$st`"" -WindowStyle Hidden`. UI at http://localhost:5341.
+- **Rancher Desktop** (Docker and k3s, on WSL2) for building images: `wsl --install --no-distribution`, then `winget install SUSE.RancherDesktop` (both elevated; reboot if asked), choosing the dockerd (moby) engine.
 - **Local tools** in `.local\tools` (gitignored; downloaded 2026-10-01, checksums verified):
   - `mailpit.exe` (v1.31.3)
   - `weed.exe` (SeaweedFS 4.48)
@@ -545,11 +601,24 @@ powershell -ExecutionPolicy Bypass -File scripts\local\stop-infra.ps1    # data 
 ```powershell
 dotnet run --project src\DataHub.Api --launch-profile https      # https://localhost:7174 (Swagger at /swagger)
 dotnet run --project src\DataHub.Web --launch-profile https      # https://localhost:7049
-dotnet run --project src\DataHub.Worker
+dotnet run --project src\DataHub.Worker                           # health at http://localhost:5290/health/live and /health/ready
 ```
 Or start them from Visual Studio with the `https` profile.
 
-### 6.4 Test the flow by hand
+### 6.4 Build the container images (needs Rancher Desktop)
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\build-images.ps1 -Version 0.1.0   # datahub-web/api/worker/migrator:0.1.0
+```
+**On this PC (2026-10-01) Rancher Desktop 1.24's Windows bridge is broken**: `docker` on Windows fails with "timed out dialing Hyper-V socket" (the "Win32 socket proxy" crash-loops in `%LOCALAPPDATA%\rancher-desktop\logs\background.log`), and the VM's DNS forwarder `192.168.127.1` times out. Restarting Rancher didn't help, and 1.24 has no setting to turn the networking tunnel off. The VM's own internet access works, so build inside the VM instead:
+```powershell
+# DNS: public resolvers until Rancher restarts (Rancher rewrites the file on start)
+wsl -d rancher-desktop sh -c 'printf "nameserver 8.8.8.8\nnameserver 1.1.1.1\n" > /etc/resolv.conf'
+# Linux-only PATH and an empty docker config: the VM's credential helpers call back to Windows and hang
+wsl -d rancher-desktop sh -c 'export PATH=/usr/sbin:/usr/bin:/sbin:/bin DOCKER_CONFIG=/tmp/dh-dockercfg; mkdir -p $DOCKER_CONFIG; echo {} > $DOCKER_CONFIG/config.json; cd /mnt/c/Users/anaci/source/repos/LogyxDataHubRepo; for a in web api worker migrator; do docker build -f deploy/docker/Dockerfile --target $a --build-arg VERSION=0.1.0 -t datahub-$a:0.1.0 . || exit 1; done'
+```
+From Git Bash, prefix `wsl` with `MSYS_NO_PATHCONV=1` so `/mnt/c/...` isn't rewritten. Pass connection strings to `docker run` with `--env-file` (they contain spaces).
+
+### 6.5 Test the flow by hand
 1. Swagger https://localhost:7174/swagger → definition **"dev (local token)"** → `POST /dev/token` (pre-filled) → copy `access_token` → **Authorize**.
 2. `POST /invitations` (pre-filled example; change `companyCode` to get a separate company). Optional `Idempotency-Key`.
 3. Open the `link` from the response. Codes and links arrive in Mailpit; SMS go to `.local\sms-outbox\*.txt`.
@@ -585,12 +654,13 @@ Pitfalls: a token from `/dev/token` with other values has no scopes → 403; the
    - `helm upgrade` with a migration.
 5. The load test produces `docs/resource-estimate.md`.
 
-### 7.2 Current test inventory (115 tests, all passing, 0 build warnings)
+### 7.2 Current test inventory (129 tests, all passing, 0 build warnings)
 - **DataHub.Oris.Tests (34):**
   - `ParsingRulesTests`: Georgian decoding, Clarion dates, account parsing rules
   - `SampleFileTests`: the reference `WIRING.TPS` (16,781 rows, total 10,525,411.79), the HIRO `Acc_name.tps`, detection of the encrypted `ACCOUNT.TPS`
   - `GelConverterTests`: GEL/blank currency keeps its amount; the line rate wins over the table; the table rate is the latest on or before the date; rounding half away from zero like ORIS; a missing rate is reported with the record
-- **DataHub.Infrastructure.Tests (53):**
+- **DataHub.Infrastructure.Tests (54):**
+  - `DatabaseMigratorTests`: a fresh database gets every migration; a second run applies nothing.
   - `DatasetLifecycleTests` (6), including the reference WIRING import into SQL (with placeholder rates).
   - `CustomerFlowTests` (13):
     - an invitation on both channels; idempotent replay; contact validation
@@ -611,13 +681,18 @@ Pitfalls: a token from `/dev/token` with other values has no scopes → 403; the
 - **DataHub.Api.Tests (22):**
   - `InvitationsApiTests` (6): auth required, scope enforced, create/get invitation, idempotency over HTTP, client isolation, validation ProblemDetails.
   - `ReportsApiTests`: the reports scope is required; the tenant header is required and must be known; a company without processed data gets a clear 404; a `tenantId` query must match the header; each tenant sees only its own data; journal contract fields, inclusive dates and paging headers; journal filters by ORIS-form account and currency; invalid parameters are rejected with a code; turnover and balance-sheet contract shapes; readiness checks the database.
-- **DataHub.Web.Tests (6):** `PortalFlowTests`
-  - the customer verifies, uploads in chunks, and the job is queued
-  - an invalid ZIP returns a bilingual error code
-  - the upload API requires a verified session (401)
-  - the upload API rejects requests without a CSRF token
-  - a wrong company code shows an error and sends no code
-  - an unknown link shows the invalid page with security headers
+- **DataHub.Web.Tests (17):**
+  - `PortalFlowTests` (6):
+    - the customer verifies, uploads in chunks, and the job is queued
+    - an invalid ZIP returns a bilingual error code
+    - the upload API requires a verified session (401)
+    - the upload API rejects requests without a CSRF token
+    - a wrong company code shows an error and sends no code
+    - an unknown link shows the invalid page with security headers
+  - `ObservabilityUnitTests` (9): link-token redaction of paths and of the request-scope `RequestPath` on every log; OTLP header and endpoint parsing.
+  - `RequestLoggingTests`: requests to `/i/{token}` (valid and invalid) log `/i/***` and never the token, email or phone.
+  - `ReplicaTests`: a cookie payload protected by one portal instance is readable by another, and the key is in the database.
+- **DataHub.Worker.Tests (2):** `WorkerHealthTests`: liveness fails only when the maintenance loop stops; readiness needs a consumer channel.
 
 Run everything: `dotnet test LogyxDataHub.sln` (needs LocalDB; sample tests skip without `Desktop\logyx`).
 
@@ -644,14 +719,16 @@ Run everything: `dotnet test LogyxDataHub.sln` (needs LocalDB; sample tests skip
   - notify on failure only
   - keep ZIPs in S3
 - **Accountant review of the balance-sheet mapping** (`Reports:BalanceSheet:Lines`), including the negative asset lines for HIRO 2024 (otherCurrentAssets -0.57, interestReceivable -16.00).
+- **Portal key ring at rest:** the Data Protection keys sit in `datahub.DataProtectionKeys` protected only by database access control. Options if TBC wants more: encrypt them with a certificate from a Kubernetes Secret (`ProtectKeysWithCertificate`), or keep as is.
 
 ### 8.3 Actions for the user
 - **Rotate the leaked credentials:** the Azure SQL admin password, the JWT key and the DevExpress key. The old values are still in `main`'s history on GitHub.
 - Add `Jwt__Key` and `ConnectionStrings__LogyxConnection` to the Azure App Service configuration.
 - Confirm deleting the old untracked copy `source\repos\LogyxDataHub`.
 - Trust the HTTPS dev certificate (`dotnet dev-certs https --trust`).
-- Open a pull request for `feature/tbc-architecture` into `main` (not done yet).
-- Install Rancher Desktop before step 7.
+- Optional: install the GitHub CLI (`winget install GitHub.cli`, then `gh auth login`), so Claude can open PRs directly. (PR #1 for `feature/tbc-architecture` was merged.)
+- Step 6 installs are done (WSL, Rancher Desktop, Seq). Optional: protect Seq with a login (it has none and listens on 127.0.0.1 only; see 6.1).
+- Optional: fix Rancher Desktop's Windows bridge (see 6.4), e.g. reinstall or try another version, so `docker` and `scripts\build-images.ps1` work from Windows again. Not blocking: the images build inside the VM.
 
 ---
 
@@ -694,5 +771,13 @@ Run everything: `dotnet test LogyxDataHub.sln` (needs LocalDB; sample tests skip
 | `weed shell` ignores piped commands (hangs) | Create the bucket through the filer HTTP API |
 | Stopping a background script also killed the services it started | Run `start-infra.ps1` in the foreground; it returns once everything is up |
 | `/dev/token` invisible in Swagger (its `dev` group was in no document) | Local-only `dev` Swagger document |
+| The SMS outbox file name (which is logged) contained the phone number | Timestamp + random id; the number stays inside the file |
+| The link token would reach logs and traces through the URL path `/i/{token}` | `SensitiveData.RedactPath` in the request log and the trace `url.path`; ASP.NET Core request logs at Warning |
+| Per-pod Data Protection keys would end portal sessions on restart or on another replica | Key ring in the database (`AddDataProtectionKeys`) |
+| Migrator `await using` on `IHost` didn't compile (IHost is only IDisposable) | `using` (disposal still flushes the logs) |
+| Serilog quotes string values when it renders a message for other logger providers | Tests match `"GET" "/i/***"` |
 | Swagger's `"string"` placeholders produced a token without scopes (403) | `[DefaultValue]` defaults on `DevTokenRequest`; example body for `POST /invitations` |
 | EF Core warning: row limit without `OrderBy` in `JobRecovery` | Order stale jobs by `HeartbeatAt` |
+| The link token reached Seq in the `RequestPath` property of ASP.NET Core's request scope (on "Email sent" during `POST /i/{token}`); the log-capture test only checked rendered messages | `RequestPathRedactor` Serilog enricher; unit test through a real MEL scope |
+| Seq as a non-admin process: HTTP.sys needs a URL reservation; first run needs an admin password or no-auth; `localhost` bound to `0.0.0.0` under Kestrel | `api.webServer=Kestrel`, `api.listenUris=http://127.0.0.1:5341`, `SEQ_FIRSTRUN_NOAUTHENTICATION=true` |
+| Rancher Desktop 1.24: Windows `docker` times out on the Hyper-V socket, VM DNS `192.168.127.1` times out, credential helpers hang | Build and run inside the VM with public DNS, a Linux-only PATH and an empty `DOCKER_CONFIG` (6.4) |

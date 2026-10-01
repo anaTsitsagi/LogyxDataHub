@@ -26,6 +26,12 @@ public sealed class ProcessingOptions
 
     public TimeSpan SweepInterval { get; set; } = TimeSpan.FromMinutes(1);
     public TimeSpan PurgeInterval { get; set; } = TimeSpan.FromMinutes(15);
+
+    /// <summary>
+    /// The worker's liveness probe fails when the maintenance loop has not run for this long. Generous,
+    /// because one purge of a large replaced dataset can take minutes.
+    /// </summary>
+    public TimeSpan LivenessTimeout { get; set; } = TimeSpan.FromMinutes(15);
 }
 
 public enum JobOutcome
