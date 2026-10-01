@@ -31,6 +31,7 @@ public sealed class JobRecovery(
         var staleBefore = now - o.StaleAfter;
         var abandoned = await db.ProcessingJobs
             .Where(j => j.Status == JobStatus.Processing && j.HeartbeatAt < staleBefore)
+            .OrderBy(j => j.HeartbeatAt)
             .Take(BatchSize)
             .ToListAsync(ct);
         foreach (var job in abandoned)

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using DataHub.Api;
 using DataHub.Api.Auth;
 using DataHub.Api.Errors;
 using DataHub.Application;
@@ -24,6 +25,8 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(o =>
 {
     o.SwaggerDoc("v1", new OpenApiInfo { Title = "Logyx DataHub API", Version = "v1" });
+    if (builder.Environment.IsEnvironment(ApiAuthentication.LocalEnvironment))
+        o.SwaggerDoc("dev", new OpenApiInfo { Title = "Logyx DataHub API (local dev tools)", Version = "dev" });
     o.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
         Type = SecuritySchemeType.Http,
@@ -33,6 +36,7 @@ builder.Services.AddSwaggerGen(o =>
     });
     o.AddSecurityRequirement(doc => new OpenApiSecurityRequirement { [new OpenApiSecuritySchemeReference("Bearer", doc)] = [] });
     o.DocInclusionPredicate((doc, api) => api.GroupName is null || api.GroupName == doc);
+    o.SchemaFilter<OpenApiExamples>();
 });
 
 var app = builder.Build();
@@ -40,7 +44,12 @@ var app = builder.Build();
 app.UseExceptionHandler();
 app.UseStatusCodePages();
 app.UseSwagger();
-app.UseSwaggerUI();
+app.UseSwaggerUI(o =>
+{
+    o.SwaggerEndpoint("/swagger/v1/swagger.json", "v1");
+    if (app.Environment.IsEnvironment(ApiAuthentication.LocalEnvironment))
+        o.SwaggerEndpoint("/swagger/dev/swagger.json", "dev (local token)");
+});
 app.UseAuthentication();
 app.UseAuthorization();
 

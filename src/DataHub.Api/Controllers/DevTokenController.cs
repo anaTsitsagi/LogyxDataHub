@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using DataHub.Api.Auth;
@@ -18,7 +19,13 @@ namespace DataHub.Api.Controllers;
 [ApiExplorerSettings(GroupName = "dev")]
 public sealed class DevTokenController(IOptions<ApiAuthOptions> options, IHostEnvironment env) : ControllerBase
 {
-    public sealed record DevTokenRequest(string ClientId = "tbc-los", string Scope = "datahub.invitations datahub.reports");
+    private const string DefaultClientId = "tbc-los";
+    private const string DefaultScope = "datahub.invitations datahub.reports";
+
+    // [DefaultValue] makes Swagger pre-fill working values instead of "string".
+    public sealed record DevTokenRequest(
+        [property: DefaultValue(DefaultClientId)] string ClientId = DefaultClientId,
+        [property: DefaultValue(DefaultScope)] string Scope = DefaultScope);
 
     [HttpPost]
     public IActionResult Issue(DevTokenRequest request)
