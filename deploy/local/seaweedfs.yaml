@@ -44,7 +44,8 @@ spec:
             periodSeconds: 5
           resources:
             requests: { cpu: 50m, memory: 128Mi }
-            limits: { memory: 1Gi }
+            # A 1.9 GB upload took it to the 1Gi limit (544 MiB own memory + file cache).
+            limits: { memory: 1536Mi }
           volumeMounts:
             - { name: data, mountPath: /data }
             - { name: config, mountPath: /etc/seaweedfs, readOnly: true }

@@ -42,6 +42,10 @@ public sealed class OrisDatabaseProcessor(
             throw Invalid(ProcessingErrors.MultipleDatabases, $"{journals.Count} WIRING.TPS files found in the archive.");
 
         var journal = journals[0];
+        // Also checked when the upload completes; repeated here in case the limits differ between the apps.
+        if (journal.Length > limits.Value.MaxJournalBytes)
+            throw Invalid(ProcessingErrors.JournalTooLarge,
+                $"WIRING.TPS is {journal.Length} bytes, above the {limits.Value.MaxJournalBytes} bytes this worker is sized for.");
         var folder = FolderOf(journal);
         var accountNames = zip.Entries.FirstOrDefault(e => IsFile(e, OrisReader.AccountNamesFile) && FolderOf(e) == folder);
 
