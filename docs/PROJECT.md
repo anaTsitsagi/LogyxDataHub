@@ -1,6 +1,6 @@
 # Logyx DataHub for TBC Bank: project reference
 
-_Last updated: 2026-10-02. Steps 0–7 are merged into `main` (PR #1–#3). Step 8 is done on branch `feature/step8-resources`, not yet in a PR._
+_Last updated: 2026-10-02. Steps 0–7 are merged into `main` (PR #1–#3). Step 8 is done on `feature/step8-resources`, in review as PR #4._
 
 **This file is the single reference for the project:** context, requirements, every decision, architecture, status per step, how to run it, open items and lessons learned.
 - Read it at the start of any work session.
@@ -421,10 +421,10 @@ CLAUDE.md   points Claude Code sessions to this file
 | 5a | Local run without Docker + Swagger for local testing | **Done**, verified live with HIRO | `4567109`, `1e6c3b1` |
 | 6 | Cross-cutting: OTLP logging, telemetry, Migrator, Dockerfiles | **Done**, merged (PR #2) | `67eadba` |
 | 7 | Local k3s test environment + Helm chart | **Done**, merged (PR #3) | on `feature/step7-local-k8s` |
-| 8 | Load test + resource estimate | **Done** (not yet in a PR) | on `feature/step8-resources` |
+| 8 | Load test + resource estimate | **Done, in review**: PR #4 | on `feature/step8-resources` |
 | 9 | Release packaging + SFTP upload | Planned | – |
 
-**Resume point (2026-10-02):** step 8 is done on `feature/step8-resources` (from `main` after PR #3 was merged); next: commit, PR, then step 9. Tests unchanged (no .NET code changed): **129 passing**, 0 build warnings.
+**Resume point (2026-10-02):** step 8 is done on `feature/step8-resources` (from `main` after PR #3 was merged); in review as PR #4; next: step 9. **131 tests passing** (Oris 34, Infrastructure 56, Api 22, Web 17, Worker 2), 0 build warnings.
 
 ### ▶ Step 8: results (2026-10-02)
 - **Report for the bank:** the Claude Docs document "Logyx DataHub – Resource Estimate and Kubernetes Sizing" (https://claude.ai/code/artifact/5e17b8c8-9b02-4222-bc06-7b8796fbef4b; private until the user shares it from its Share menu). Same content in the repo: `docs/resource-estimate.md`. Sample companies are anonymised there (Samples A–C).
@@ -435,7 +435,7 @@ CLAUDE.md   points Claude Code sessions to this file
 - **Local fixes:** RabbitMQ's exec readiness probe (`rabbitmq-diagnostics`) cost ~0.4 core idle → TCP probe (10 millicores); scheduler busy-wait off; SeaweedFS limit 1.5 GiB (a 1.9 GB upload hit 1 GiB).
 - Tools: `scripts/load-test.ps1` (see 6.5); the TPS memory benchmark was a throwaway console in the session scratchpad (method in the report: each `WIRING.TPS` read in its own process, heap and working set measured).
 - Open for TBC (in the report): largest expected journal, uploads per day and peak concurrency, CPU-limit policy, 3 GiB ephemeral storage per worker, S3 retention.
-- Possible follow-up (not done): reject a `WIRING.TPS` above a configurable size with a clear error code instead of risking an OOM kill.
+- **Journal size check (added at the user's request):** `Uploads:MaxJournalBytes` (default 55 MB, matching the 2 GiB worker; in the chart's `config` as `Uploads__MaxJournalBytes`). A larger `WIRING.TPS` is refused with `ORIS_JOURNAL_TOO_LARGE` when the upload completes (`ZipInspector`, so the customer sees it in the portal and nothing is queued) and again in the worker before reading (in case the setting differs between apps). Bilingual text in `PortalText` and `Messages` ("too large to process automatically, please contact the bank"). **The Georgian wording is mine: have a native speaker check it.**
 
 ### Step 7: status (done, merged as PR #3)
 **Done (2026-10-02)**
@@ -723,23 +723,23 @@ Pitfalls: a token from `/dev/token` with other values has no scopes → 403; the
    - `helm upgrade` with a migration.
 5. The load test produces `docs/resource-estimate.md`.
 
-### 7.2 Current test inventory (129 tests, all passing, 0 build warnings)
+### 7.2 Current test inventory (131 tests, all passing, 0 build warnings)
 - **DataHub.Oris.Tests (34):**
   - `ParsingRulesTests`: Georgian decoding, Clarion dates, account parsing rules
   - `SampleFileTests`: the reference `WIRING.TPS` (16,781 rows, total 10,525,411.79), the HIRO `Acc_name.tps`, detection of the encrypted `ACCOUNT.TPS`
   - `GelConverterTests`: GEL/blank currency keeps its amount; the line rate wins over the table; the table rate is the latest on or before the date; rounding half away from zero like ORIS; a missing rate is reported with the record
-- **DataHub.Infrastructure.Tests (54):**
+- **DataHub.Infrastructure.Tests (56):**
   - `DatabaseMigratorTests`: a fresh database gets every migration; a second run applies nothing.
   - `DatasetLifecycleTests` (6), including the reference WIRING import into SQL (with placeholder rates).
-  - `CustomerFlowTests` (13):
+  - `CustomerFlowTests` (14):
     - an invitation on both channels; idempotent replay; contact validation
     - wrong company code; email OTP; SMS-only OTP; OTP expiry and rate limit
     - a chunked upload queues a location-only message; resume reports the stored parts
-    - rejection of a ZIP with no TPS; path traversal; CSV disabled; blocked while processing
+    - rejection of a ZIP with no TPS; a journal above `MaxJournalBytes` (not queued); path traversal; CSV disabled; blocked while processing
     - ASCII-safe S3 keys
   - `JobProcessingTests`:
     - the HIRO database is imported and activated
-    - missing journal (customer notified by email and SMS)
+    - missing journal (customer notified by email and SMS); a journal above `MaxJournalBytes` fails before it is read
     - a corrupt TPS is reported unreadable and its staging is discarded
     - two company databases; checksum mismatch; not a ZIP
     - a duplicate message is skipped; a job being processed elsewhere is skipped

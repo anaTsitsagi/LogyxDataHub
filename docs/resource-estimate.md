@@ -91,7 +91,7 @@ Memory grows linearly: about 10× the file size when the table is opened, 20× p
 1. **Resource settings:** as in section 1. They are the defaults in the Helm chart (`values.yaml`).
 2. **Worker replicas:** 2 for availability. Each takes one job at a time (prefetch 1). CPU-based autoscaling isn't a good signal, because imports are short bursts; if scaling is needed, scale on the queue length (e.g. KEDA with the RabbitMQ queue).
 3. **RabbitMQ:** an `exec` readiness probe with `rabbitmq-diagnostics` starts an Erlang VM every time it runs. In the test it used ~0.4 CPU core continuously while idle; a TCP probe on port 5672 brought idle use down to ~10 millicores.
-4. **Large journal tables:** if customers may have a `WIRING.TPS` larger than ~55 MB, either raise the worker's memory limit using the formula above, or have DataHub reject such files up front with a clear message (an option for the next version).
+4. **Large journal tables:** DataHub refuses a `WIRING.TPS` larger than the `Uploads__MaxJournalBytes` setting (default 55 MB, matching the 2 GiB worker limit). The customer sees a clear message in the portal as soon as the upload completes ("too large to process automatically, please contact the bank"), and the worker checks again before reading. If larger journals are expected, raise the setting and the worker's memory limit together, using the formula above.
 5. These figures come from a single-node development cluster. They should be confirmed once in the bank's test environment (the same load-test script can be used against any test installation).
 
 ## 6. Questions for the bank

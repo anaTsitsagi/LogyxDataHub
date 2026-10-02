@@ -22,6 +22,9 @@ config:
   Invitations__PortalBaseUrl: ""
   S3__Bucket: ""
   S3__Region: eu-central-1
+  # Largest ORIS journal table (WIRING.TPS) accepted, in bytes: 55 MB fits apps.worker's 2Gi memory limit.
+  # Raise both together (worker memory ~ 350 MiB + 28 MiB per MB of WIRING.TPS; docs/resource-estimate.md).
+  Uploads__MaxJournalBytes: "57671680"
   RabbitMq__QueueType: quorum
   Smtp__Host: ""
   Smtp__Port: "587"
