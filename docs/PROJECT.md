@@ -1,6 +1,6 @@
 # Logyx DataHub for TBC Bank: project reference
 
-_Last updated: 2026-10-02. Steps 0–7 are merged into `main` (PR #1–#3). Step 8 is done on `feature/step8-resources`, in review as PR #4._
+_Last updated: 2026-10-05. Steps 0–7 are merged into `main` (PR #1–#3). Step 8 is done on `feature/step8-resources`, in review as PR #4. TBC's deployment feedback (no disks in their K8s, worker pinned to one node) is recorded in step 8b, on hold until the user decides._
 
 **This file is the single reference for the project:** context, requirements, every decision, architecture, status per step, how to run it, open items and lessons learned.
 - Read it at the start of any work session.
@@ -59,6 +59,7 @@ Logyx must also provide TBC with a **testing environment**.
 | 5 | AWS S3 | AWSSDK.S3 (done; verified live against SeaweedFS locally) |
 | 6 | RabbitMQ | RabbitMQ.Client 7.2.2 (done; verified live against RabbitMQ 4.3.6 locally) |
 | 7 | Resource-use estimate for processing plus Kubernetes requests/limits | **Done (step 8):** `docs/resource-estimate.md`, measured values in the chart; shareable report for the bank (see step 8) |
+| 8 | (Deployment feedback, 2026-10-05) **No persistent or temporary disks in their K8s**; the worker is pinned to one node | **Not decided yet:** design and impact in step 8b; implement only when the user says so |
 
 ---
 
@@ -422,9 +423,55 @@ CLAUDE.md   points Claude Code sessions to this file
 | 6 | Cross-cutting: OTLP logging, telemetry, Migrator, Dockerfiles | **Done**, merged (PR #2) | `67eadba` |
 | 7 | Local k3s test environment + Helm chart | **Done**, merged (PR #3) | on `feature/step7-local-k8s` |
 | 8 | Load test + resource estimate | **Done, in review**: PR #4 | on `feature/step8-resources` |
+| 8b | TBC deployment feedback: disk-free worker, worker pinned to a node | **On hold** (waiting for the user's go and TBC's answers) | – |
 | 9 | Release packaging + SFTP upload | Planned | – |
 
-**Resume point (2026-10-02):** step 8 is done on `feature/step8-resources` (from `main` after PR #3 was merged); in review as PR #4; next: step 9. **131 tests passing** (Oris 34, Infrastructure 56, Api 22, Web 17, Worker 2), 0 build warnings.
+**Resume point (2026-10-05):** step 8 is done on `feature/step8-resources` (from `main` after PR #3 was merged); in review as PR #4. TBC answered with deployment feedback (step 8b below); a reply was drafted for the user, and **the implementation waits for the user's instructions**. Otherwise next: step 9. **131 tests passing** (Oris 34, Infrastructure 56, Api 22, Web 17, Worker 2), 0 build warnings.
+
+### ⏸ Step 8b: TBC deployment feedback (received 2026-10-05; on hold)
+**What TBC wrote** (deployment reviewer's email, in Georgian; summary):
+1. Their Kubernetes uses **no persistent or temporary disks** (no PVCs, and as we read it no `emptyDir`/ephemeral storage). DataHub needs another way to store and read temporary data.
+2. **Worker replicas:** 2 are acceptable *if* we are sure idempotency, queue exclusivity and concurrent sessions cause no problems in parallel processing. But because of its size the worker will be **pinned to one specific K8s worker node**, so 2 replicas there give no fault tolerance.
+3. If this changes the parameters we sent (`docs/resource-estimate.md`), tell them and discuss.
+
+**Where DataHub uses disk today** (only the worker; web, api and migrator don't):
+- `JobProcessor.DownloadAndVerifyAsync` (`src/DataHub.Application/Processing/JobProcessor.cs`): downloads the whole ZIP (up to 2 GB) to `Processing:TempDirectory`, then checks size and SHA-256.
+- `OrisDatabaseProcessor.ExtractAsync` (`src/DataHub.Application/Processing/OrisDatabaseProcessor.cs`): extracts `WIRING.TPS`, `Acc_name.tps` and `Rate.tps` to temp files (TpsParser needs a seekable stream).
+- The portal already buffers each chunk in memory (`UploadApiController`) and inspects the ZIP by ranged S3 reads. The chart mounts `/tmp` as an `emptyDir` in every pod (`deployments.yaml`, `migrator-job.yaml`) because the root filesystem is read-only.
+
+**Proposed design: a disk-free worker** (not implemented)
+- Open the ZIP over `S3RangeReadStream` (as `ZipInspector` does) instead of downloading it: only the central directory and the three needed entries are fetched.
+- Extract the three entries into `MemoryStream`s (bounded by `Uploads:MaxJournalBytes`; keep the uncompressed-size check). TpsParser holds the table in memory anyway, so this adds only the file size.
+- SHA-256 and size: hash a sequential S3 read without storing it (≈ the current download time, ~50 s for 2 GB), or drop the full-file hash and rely on S3 integrity plus the ZIP CRC of the entries read. Decide when implementing.
+- Remove `Processing:TempDirectory` (or keep it unused), the worker's `ephemeral-storage` request and its `emptyDir`.
+- `/tmp`: .NET may want a small writable `/tmp` (diagnostics IPC socket). Preferred: a memory-backed `emptyDir` (`medium: Memory`, ~64 Mi, counts against the memory limit) if TBC allows it; otherwise no volume at all and `DOTNET_EnableDiagnostics=0`. **Test all four apps with no volumes** on the local cluster.
+- Tests: `JobProcessingTests` use `TempDirectory`; adapt them, and add one that runs a job with no writable temp directory.
+
+**Expected effect on the sizing** (re-measure with `scripts/load-test.ps1` after the change)
+- Worker ephemeral storage 3 GiB → **none**.
+- Worker memory ≈ 350 MiB + **~29 MiB per MB** of `WIRING.TPS` (the journal bytes are now in memory too): ~1.95 GiB at the 55 MB cap, tight for the 2 GiB limit. Either lower `MaxJournalBytes` to ~50 MB or raise the limit to ~2.5 GiB.
+- No page cache from the 2 GB download (the 1.7 GiB container memory seen in step 8); large-ZIP imports get faster (no full download).
+- Update `docs/resource-estimate.md` and the Claude Docs report afterwards.
+
+**Replicas: our answer (parallel processing is safe; already in the design and tests)**
+- Queue exclusivity: prefetch 1, manual ack; the job is claimed by a conditional `UPDATE`, so only one worker processes it; duplicate messages are skipped (tested).
+- Idempotency: staging dataset, activation in one locked transaction, older data never replaces newer; abandoned jobs are requeued by the sweep (tested).
+- Concurrent sessions: no new upload for a company while a job is Queued/Processing; tenants are isolated.
+- Node failure with a pinned worker: nothing is lost (uploads still accepted, jobs wait in the DB and RabbitMQ); the worker resumes when the node returns and a stale job is retried after ~3 min. The effect is delay only.
+- **Proposal:** 1 worker replica on the pinned node, update strategy `Recreate` (or `maxSurge: 0`) so an upgrade doesn't need a second 2 GiB on the node; optional 2nd replica on the same node for throughput only. If TBC can label **two** nodes for the worker, 2 replicas with anti-affinity across them give real fault tolerance.
+
+**Chart changes needed** (not done)
+- Per-app `nodeSelector` / `tolerations` / `affinity` (today only `pod.*`, shared by all pods; `values.yaml`), so only the worker is pinned.
+- Per-app `strategy` (worker: `Recreate`).
+- Worker: no `emptyDir`, no `ephemeral-storage`; `/tmp` volume optional per the answer to question 1 below.
+- `replicaCount` 1 for the worker by default.
+
+**Questions sent to / to send to TBC** (also in 8.1)
+1. Is a memory-backed `emptyDir` for `/tmp` allowed, or no volumes at all?
+2. Which label or taint marks the worker's node? Could two nodes carry it?
+3. How much memory is available for the worker on that node (2 GiB, or 4 GiB for two replicas)?
+
+**Status:** a reply to TBC was drafted (Georgian + English) proposing the above; it commits to the disk-free worker. The user hasn't decided yet whether to implement it. **Wait for the user's instructions before changing code.**
 
 ### ▶ Step 8: results (2026-10-02)
 - **Report for the bank:** the Claude Docs document "Logyx DataHub – Resource Estimate and Kubernetes Sizing" (https://claude.ai/code/artifact/5e17b8c8-9b02-4222-bc06-7b8796fbef4b; private until the user shares it from its Share menu). Same content in the repo: `docs/resource-estimate.md`. Sample companies are anonymised there (Samples A–C).
@@ -778,6 +825,7 @@ Run everything: `dotnet test LogyxDataHub.sln` (needs LocalDB; sample tests skip
 - **Retention period** for uploaded ZIPs in S3, and for replaced data.
 - **Ingress limits:** whether TBC's ingress or WAF allows 64 MB request bodies (the 16 MB chunks) and long uploads.
 - **S3:** confirm SSE-S3 (AES256) is allowed/enabled on their bucket.
+- **Disks and worker node (from their 2026-10-05 feedback, step 8b):** is a memory-backed `emptyDir` for `/tmp` allowed, or no volumes at all? Which label/taint marks the worker's node, and could two nodes carry it? How much memory is available for the worker there?
 - **Paused:** the naming of `turnover-register` vs `turnover` and the docx example field names. This is naming only, not parsing; the data comes from the same WIRING lines either way.
 
 ### 8.2 Questions for the user
