@@ -1,6 +1,6 @@
 # Logyx DataHub for TBC Bank: project reference
 
-_Last updated: 2026-10-02. Steps 0–6 are merged into `main` (PR #1, PR #2). Step 7 is done on `feature/step7-local-k8s`, in review as PR #3._
+_Last updated: 2026-10-05. Steps 0–7 are merged into `main` (PR #1–#3). Step 8 is done on `feature/step8-resources`, in review as PR #4. TBC's deployment feedback (no disks in their K8s, worker pinned to one node) is recorded in step 8b, on hold until the user decides._
 
 **This file is the single reference for the project:** context, requirements, every decision, architecture, status per step, how to run it, open items and lessons learned.
 - Read it at the start of any work session.
@@ -58,7 +58,8 @@ Logyx must also provide TBC with a **testing environment**.
 | 4 | MSSQL | EF Core 10 on SQL Server, `datahub` schema (done) |
 | 5 | AWS S3 | AWSSDK.S3 (done; verified live against SeaweedFS locally) |
 | 6 | RabbitMQ | RabbitMQ.Client 7.2.2 (done; verified live against RabbitMQ 4.3.6 locally) |
-| 7 | Resource-use estimate for processing plus Kubernetes requests/limits | Load test + `docs/resource-estimate.md` (step 8) |
+| 7 | Resource-use estimate for processing plus Kubernetes requests/limits | **Done (step 8):** `docs/resource-estimate.md`, measured values in the chart; shareable report for the bank (see step 8) |
+| 8 | (Deployment feedback, 2026-10-05) **No persistent or temporary disks in their K8s**; the worker is pinned to one node | **Not decided yet:** design and impact in step 8b; implement only when the user says so |
 
 ---
 
@@ -323,7 +324,8 @@ scripts/
   local/k8s-up.ps1, local/k8s-down.ps1         local cluster: infrastructure + chart      [step 7]
   local/smoke-test.ps1                         end-to-end check of a running DataHub      [step 7]
   build-images.ps1                                                                        [step 6]
-  package-release.ps1, upload-sftp.ps1, load-test.ps1                                     [steps 8–9]
+  load-test.ps1   smoke tests in parallel + per-container CPU/memory/temp-disk sampling  [step 8]
+  package-release.ps1, upload-sftp.ps1                                                    [step 9]
 deploy/
   docker/Dockerfile   one multi-stage file, targets web/api/worker/migrator (chiseled,
                       non-root); .dockerignore at the repo root                           [step 6]
@@ -419,13 +421,70 @@ CLAUDE.md   points Claude Code sessions to this file
 | 5 | TBC report APIs | **Done** | `e309f5e` |
 | 5a | Local run without Docker + Swagger for local testing | **Done**, verified live with HIRO | `4567109`, `1e6c3b1` |
 | 6 | Cross-cutting: OTLP logging, telemetry, Migrator, Dockerfiles | **Done**, merged (PR #2) | `67eadba` |
-| 7 | Local k3s test environment + Helm chart | **Done, in review**: PR #3 | on `feature/step7-local-k8s` |
-| 8 | Load test + resource estimate | Planned | – |
+| 7 | Local k3s test environment + Helm chart | **Done**, merged (PR #3) | on `feature/step7-local-k8s` |
+| 8 | Load test + resource estimate | **Done, in review**: PR #4 | on `feature/step8-resources` |
+| 8b | TBC deployment feedback: disk-free worker, worker pinned to a node | **On hold** (waiting for the user's go and TBC's answers) | – |
 | 9 | Release packaging + SFTP upload | Planned | – |
 
-**Resume point (2026-10-02):** step 7 is in progress on `feature/step7-local-k8s` (from `main` after PR #2 was merged). The Helm chart, the local cluster, the smoke test and the browser test are done (see "▶ Step 7: status" below); in review as PR #3. No .NET code changed in step 7, so the tests are unchanged: **129 passing**, 0 build warnings.
+**Resume point (2026-10-05):** step 8 is done on `feature/step8-resources` (from `main` after PR #3 was merged); in review as PR #4. TBC answered with deployment feedback (step 8b below); a reply was drafted for the user, and **the implementation waits for the user's instructions**. Otherwise next: step 9. **131 tests passing** (Oris 34, Infrastructure 56, Api 22, Web 17, Worker 2), 0 build warnings.
 
-### ▶ Step 7: status
+### ⏸ Step 8b: TBC deployment feedback (received 2026-10-05; on hold)
+**What TBC wrote** (deployment reviewer's email, in Georgian; summary):
+1. Their Kubernetes uses **no persistent or temporary disks** (no PVCs, and as we read it no `emptyDir`/ephemeral storage). DataHub needs another way to store and read temporary data.
+2. **Worker replicas:** 2 are acceptable *if* we are sure idempotency, queue exclusivity and concurrent sessions cause no problems in parallel processing. But because of its size the worker will be **pinned to one specific K8s worker node**, so 2 replicas there give no fault tolerance.
+3. If this changes the parameters we sent (`docs/resource-estimate.md`), tell them and discuss.
+
+**Where DataHub uses disk today** (only the worker; web, api and migrator don't):
+- `JobProcessor.DownloadAndVerifyAsync` (`src/DataHub.Application/Processing/JobProcessor.cs`): downloads the whole ZIP (up to 2 GB) to `Processing:TempDirectory`, then checks size and SHA-256.
+- `OrisDatabaseProcessor.ExtractAsync` (`src/DataHub.Application/Processing/OrisDatabaseProcessor.cs`): extracts `WIRING.TPS`, `Acc_name.tps` and `Rate.tps` to temp files (TpsParser needs a seekable stream).
+- The portal already buffers each chunk in memory (`UploadApiController`) and inspects the ZIP by ranged S3 reads. The chart mounts `/tmp` as an `emptyDir` in every pod (`deployments.yaml`, `migrator-job.yaml`) because the root filesystem is read-only.
+
+**Proposed design: a disk-free worker** (not implemented)
+- Open the ZIP over `S3RangeReadStream` (as `ZipInspector` does) instead of downloading it: only the central directory and the three needed entries are fetched.
+- Extract the three entries into `MemoryStream`s (bounded by `Uploads:MaxJournalBytes`; keep the uncompressed-size check). TpsParser holds the table in memory anyway, so this adds only the file size.
+- SHA-256 and size: hash a sequential S3 read without storing it (≈ the current download time, ~50 s for 2 GB), or drop the full-file hash and rely on S3 integrity plus the ZIP CRC of the entries read. Decide when implementing.
+- Remove `Processing:TempDirectory` (or keep it unused), the worker's `ephemeral-storage` request and its `emptyDir`.
+- `/tmp`: .NET may want a small writable `/tmp` (diagnostics IPC socket). Preferred: a memory-backed `emptyDir` (`medium: Memory`, ~64 Mi, counts against the memory limit) if TBC allows it; otherwise no volume at all and `DOTNET_EnableDiagnostics=0`. **Test all four apps with no volumes** on the local cluster.
+- Tests: `JobProcessingTests` use `TempDirectory`; adapt them, and add one that runs a job with no writable temp directory.
+
+**Expected effect on the sizing** (re-measure with `scripts/load-test.ps1` after the change)
+- Worker ephemeral storage 3 GiB → **none**.
+- Worker memory ≈ 350 MiB + **~29 MiB per MB** of `WIRING.TPS` (the journal bytes are now in memory too): ~1.95 GiB at the 55 MB cap, tight for the 2 GiB limit. Either lower `MaxJournalBytes` to ~50 MB or raise the limit to ~2.5 GiB.
+- No page cache from the 2 GB download (the 1.7 GiB container memory seen in step 8); large-ZIP imports get faster (no full download).
+- Update `docs/resource-estimate.md` and the Claude Docs report afterwards.
+
+**Replicas: our answer (parallel processing is safe; already in the design and tests)**
+- Queue exclusivity: prefetch 1, manual ack; the job is claimed by a conditional `UPDATE`, so only one worker processes it; duplicate messages are skipped (tested).
+- Idempotency: staging dataset, activation in one locked transaction, older data never replaces newer; abandoned jobs are requeued by the sweep (tested).
+- Concurrent sessions: no new upload for a company while a job is Queued/Processing; tenants are isolated.
+- Node failure with a pinned worker: nothing is lost (uploads still accepted, jobs wait in the DB and RabbitMQ); the worker resumes when the node returns and a stale job is retried after ~3 min. The effect is delay only.
+- **Proposal:** 1 worker replica on the pinned node, update strategy `Recreate` (or `maxSurge: 0`) so an upgrade doesn't need a second 2 GiB on the node; optional 2nd replica on the same node for throughput only. If TBC can label **two** nodes for the worker, 2 replicas with anti-affinity across them give real fault tolerance.
+
+**Chart changes needed** (not done)
+- Per-app `nodeSelector` / `tolerations` / `affinity` (today only `pod.*`, shared by all pods; `values.yaml`), so only the worker is pinned.
+- Per-app `strategy` (worker: `Recreate`).
+- Worker: no `emptyDir`, no `ephemeral-storage`; `/tmp` volume optional per the answer to question 1 below.
+- `replicaCount` 1 for the worker by default.
+
+**Questions sent to / to send to TBC** (also in 8.1)
+1. Is a memory-backed `emptyDir` for `/tmp` allowed, or no volumes at all?
+2. Which label or taint marks the worker's node? Could two nodes carry it?
+3. How much memory is available for the worker on that node (2 GiB, or 4 GiB for two replicas)?
+
+**Status:** a reply to TBC was drafted (Georgian + English) proposing the above; it commits to the disk-free worker. The user hasn't decided yet whether to implement it. **Wait for the user's instructions before changing code.**
+
+### ▶ Step 8: results (2026-10-02)
+- **Report for the bank:** the Claude Docs document "Logyx DataHub – Resource Estimate and Kubernetes Sizing" (https://claude.ai/code/artifact/5e17b8c8-9b02-4222-bc06-7b8796fbef4b; private until the user shares it from its Share menu). Same content in the repo: `docs/resource-estimate.md`. Sample companies are anonymised there (Samples A–C).
+- **Key finding:** worker memory ≈ 350 MiB + **28 MiB per MB of `WIRING.TPS`**: TpsParser holds the whole table in memory (~10× file size after opening, ~20× peak heap). The upload size drives disk, not memory. With the 2 GiB limit one worker handles a `WIRING.TPS` up to ~55 MB (~190,000 lines). Largest sample: 4.8 MB.
+- **Measured** (single-node k3s, 4 vCPU / 7.9 GB): A/B/C sequentially, 5 at once, 500 MB and 1.9 GB synthetic ZIPs (Sample B + incompressible padding), all passed. Import 2.8–8.7 s for the samples, 57 s for 1.9 GB. Peaks: web 1.15 cores / 227 MiB, api 0.7 core / 187 MiB, worker 1.4 cores / ≤ 410 MiB process memory, worker temp 1,901 MiB (ZIP + one table), SQL Server ~1 core / 1.18 GiB. Database ≈ 530 bytes per journal line incl. indexes (≈ 1.9 MB per MB of WIRING.TPS).
+- **Chart defaults now measured:** worker request 500m / 768 MiB / 3 GiB ephemeral, limit 2 GiB, temp `emptyDir` 3 GiB (was 25 GiB, which assumed every file is extracted; only WIRING, Acc_name and Rate are). Web/api unchanged (100m / 256 MiB, limit 512 MiB). No CPU limits.
+- **Upload speed:** the portal takes 15 MB/s per upload inside the cluster (one part at a time; mostly the S3 write). From Windows into Rancher's cluster only 3.7–5 MB/s: Rancher's tunnel on this PC, not DataHub.
+- **Local fixes:** RabbitMQ's exec readiness probe (`rabbitmq-diagnostics`) cost ~0.4 core idle → TCP probe (10 millicores); scheduler busy-wait off; SeaweedFS limit 1.5 GiB (a 1.9 GB upload hit 1 GiB).
+- Tools: `scripts/load-test.ps1` (see 6.5); the TPS memory benchmark was a throwaway console in the session scratchpad (method in the report: each `WIRING.TPS` read in its own process, heap and working set measured).
+- Open for TBC (in the report): largest expected journal, uploads per day and peak concurrency, CPU-limit policy, 3 GiB ephemeral storage per worker, S3 retention.
+- **Journal size check (added at the user's request):** `Uploads:MaxJournalBytes` (default 55 MB, matching the 2 GiB worker; in the chart's `config` as `Uploads__MaxJournalBytes`). A larger `WIRING.TPS` is refused with `ORIS_JOURNAL_TOO_LARGE` when the upload completes (`ZipInspector`, so the customer sees it in the portal and nothing is queued) and again in the worker before reading (in case the setting differs between apps). Bilingual text in `PortalText` and `Messages` ("too large to process automatically, please contact the bank"). **The Georgian wording is mine: have a native speaker check it.**
+
+### Step 7: status (done, merged as PR #3)
 **Done (2026-10-02)**
 - `deploy/helm/datahub` (chart 0.1.0), `deploy/local` (infrastructure), `scripts/local/k8s-up.ps1` and `k8s-down.ps1` (details in 3.2 "Local Kubernetes and Helm chart").
 - **Verified on Rancher Desktop (k3s 1.36, Traefik):**
@@ -556,7 +615,7 @@ What was built is in 3.2 ("Logging and telemetry", "Containers", the worker prob
 - The upload JavaScript gets its first real browser test (the live run so far drove the portal API from a script).
 - Integration tests against real MSSQL, RabbitMQ and S3 containers.
 
-### Step 8: Resource estimate and requests/limits (TBC requirement #7, planned)
+### Step 8: Resource estimate and requests/limits (TBC requirement #7, done; results above)
 - metrics-server, which is built into k3s.
 - `scripts/load-test.ps1`:
   - uploads each sample company (AILABI, HIRO, ALTERA, the 16.5 MB ZIP) once, then 5 at the same time
@@ -672,6 +731,7 @@ powershell -ExecutionPolicy Bypass -File scripts\local\k8s-down.ps1 -Purge      
 - The certificate is self-signed (`.local\k8s\tls.crt`); browsers warn until it is trusted (8.3).
 - After rebuilding the images with the same version: `kubectl rollout restart deployment -n datahub-local` (the tag is unchanged, so Helm sees no change).
 - Logs: `kubectl logs -n datahub-local deploy/datahub-worker`; the migrator's: `kubectl logs -n datahub-local job/datahub-migrator`.
+- Load test: `powershell -ExecutionPolicy Bypass -File scripts\load-test.ps1 -Label five -Concurrency 5 -Zips ".local\test-data\A.zip,.local\test-data\B.zip"` (comma-separated, one string); results in `.local\load-test\<label>-<time>` (`summary.txt`, `samples.csv`, `runs.csv`). No `-Zips` = idle baseline.
 - End-to-end check: `powershell -ExecutionPolicy Bypass -File scripts\local\smoke-test.ps1 -ZipPath .local\test-data\HIRO.zip` (zip an ORIS company folder into `.local\test-data` first; for `dotnet run`, pass `-Api`, `-Portal`, `-Mailpit` and `-Seq` with the localhost addresses).
 
 ### 6.6 Test the flow by hand
@@ -710,23 +770,23 @@ Pitfalls: a token from `/dev/token` with other values has no scopes → 403; the
    - `helm upgrade` with a migration.
 5. The load test produces `docs/resource-estimate.md`.
 
-### 7.2 Current test inventory (129 tests, all passing, 0 build warnings)
+### 7.2 Current test inventory (131 tests, all passing, 0 build warnings)
 - **DataHub.Oris.Tests (34):**
   - `ParsingRulesTests`: Georgian decoding, Clarion dates, account parsing rules
   - `SampleFileTests`: the reference `WIRING.TPS` (16,781 rows, total 10,525,411.79), the HIRO `Acc_name.tps`, detection of the encrypted `ACCOUNT.TPS`
   - `GelConverterTests`: GEL/blank currency keeps its amount; the line rate wins over the table; the table rate is the latest on or before the date; rounding half away from zero like ORIS; a missing rate is reported with the record
-- **DataHub.Infrastructure.Tests (54):**
+- **DataHub.Infrastructure.Tests (56):**
   - `DatabaseMigratorTests`: a fresh database gets every migration; a second run applies nothing.
   - `DatasetLifecycleTests` (6), including the reference WIRING import into SQL (with placeholder rates).
-  - `CustomerFlowTests` (13):
+  - `CustomerFlowTests` (14):
     - an invitation on both channels; idempotent replay; contact validation
     - wrong company code; email OTP; SMS-only OTP; OTP expiry and rate limit
     - a chunked upload queues a location-only message; resume reports the stored parts
-    - rejection of a ZIP with no TPS; path traversal; CSV disabled; blocked while processing
+    - rejection of a ZIP with no TPS; a journal above `MaxJournalBytes` (not queued); path traversal; CSV disabled; blocked while processing
     - ASCII-safe S3 keys
   - `JobProcessingTests`:
     - the HIRO database is imported and activated
-    - missing journal (customer notified by email and SMS)
+    - missing journal (customer notified by email and SMS); a journal above `MaxJournalBytes` fails before it is read
     - a corrupt TPS is reported unreadable and its staging is discarded
     - two company databases; checksum mismatch; not a ZIP
     - a duplicate message is skipped; a job being processed elsewhere is skipped
@@ -765,6 +825,7 @@ Run everything: `dotnet test LogyxDataHub.sln` (needs LocalDB; sample tests skip
 - **Retention period** for uploaded ZIPs in S3, and for replaced data.
 - **Ingress limits:** whether TBC's ingress or WAF allows 64 MB request bodies (the 16 MB chunks) and long uploads.
 - **S3:** confirm SSE-S3 (AES256) is allowed/enabled on their bucket.
+- **Disks and worker node (from their 2026-10-05 feedback, step 8b):** is a memory-backed `emptyDir` for `/tmp` allowed, or no volumes at all? Which label/taint marks the worker's node, and could two nodes carry it? How much memory is available for the worker there?
 - **Paused:** the naming of `turnover-register` vs `turnover` and the docx example field names. This is naming only, not parsing; the data comes from the same WIRING lines either way.
 
 ### 8.2 Questions for the user
@@ -837,6 +898,11 @@ Run everything: `dotnet test LogyxDataHub.sln` (needs LocalDB; sample tests skip
 | EF Core warning: row limit without `OrderBy` in `JobRecovery` | Order stale jobs by `HeartbeatAt` |
 | PowerShell 5.1 turns a native command's stderr into a terminating error under `$ErrorActionPreference = "Stop"`, even when redirected | `Continue` inside the function where a failure is expected (`Test-Image` in `k8s-up.ps1`) |
 | Anaconda's `openssl` (first on PATH) has no `openssl.cnf` | Prefer Git for Windows' `openssl`, and pass a minimal `-config` |
+| RabbitMQ (local) used ~0.4 core while idle | The exec readiness probe started an Erlang VM every 10 s → TCP probe on 5672 |
+| `powershell -File script.ps1 -Zips a,b` doesn't bind an array (the extra items spill into other parameters) | `-Zips` is one comma-separated string |
+| Assigning an array back to a `[string]`-typed parameter variable joins it into one string | A separate variable (`$zipList`) |
+| `docker stats` memory includes the container's active file cache (worker showed 1.7 GiB writing a 1.9 GB ZIP) | Worker process memory taken from its .NET `dotnet.process.memory.working_set` metric in Seq (≤ 410 MiB) |
+| Slow uploads from Windows (3.7 MB/s) | Measured in-cluster: 15 MB/s; Rancher's tunnel is the bottleneck, not the portal |
 | PowerShell 5.1: a scriptblock as `ServerCertificateValidationCallback` fails at random ("connection was closed ... on a send"), because .NET calls it on a thread without a runspace; a method can't be cast to the delegate either | A small `Add-Type` class that installs a C# lambda (`smoke-test.ps1`) |
 | RabbitMQ in Kubernetes: the first start failed (`.erlang.cookie: eacces`), because the readiness probe runs as root and could create the cookie before the server | Run the pod as user 999 (`runAsUser`/`runAsGroup`) |
 | RabbitMQ crash-looped after a restart with `fsGroup: 999` ("Cookie file must be accessible by owner only"): fsGroup makes files group-readable on every mount | No `fsGroup` (local-path volumes are writable for any user) |

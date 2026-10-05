@@ -223,6 +223,18 @@ public partial class CustomerFlowTests(SqlDatabaseFixture fixture)
     }
 
     [Fact]
+    public async Task Journal_larger_than_the_worker_is_sized_for_is_rejected_and_not_queued()
+    {
+        var customer = await VerifiedCustomerAsync(NewCompanyCode());
+        _uploadOptions.MaxJournalBytes = 2000; // the test entries are 3,000 bytes
+
+        var ex = await Assert.ThrowsAsync<DataHubException>(() => UploadAsync(customer, Zip("HIRO/WIRING.TPS", "HIRO/Acc_name.tps")));
+
+        Assert.Equal(ProcessingErrors.JournalTooLarge, ex.Code);
+        Assert.Empty(_publisher.Published);
+    }
+
+    [Fact]
     public async Task Zip_with_path_traversal_is_rejected()
     {
         var customer = await VerifiedCustomerAsync(NewCompanyCode());

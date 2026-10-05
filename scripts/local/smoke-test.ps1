@@ -18,6 +18,8 @@ param(
     [string]$Mailpit = "http://mailpit.localtest.me",
     # Optional: also check that the link token never reached Seq.
     [string]$Seq = "http://seq.localtest.me",
+    # Skip the Seq check (load tests run many smoke tests at once).
+    [switch]$NoSeqCheck,
     [string]$FromDate = "2024-01-01",
     [string]$ToDate = "2024-12-31",
     [int]$TimeoutSeconds = 300
@@ -102,24 +104,32 @@ $csrf = [regex]::Match($page.Content, 'name="csrf-token" content="([^"]+)"').Gro
 
 # --- 3. Chunked upload ---------------------------------------------------------
 $headers = @{ "X-CSRF-TOKEN" = $csrf }
-$bytes = [IO.File]::ReadAllBytes($zip)
+$size = (Get-Item $zip).Length
 $session = Invoke-RestMethod -WebSession $web -Method Post -Uri "$Portal/portal-api/uploads" -Headers $headers -ContentType "application/json" `
-    -Body (@{ type = "orisDatabase"; fileName = [IO.Path]::GetFileName($zip); sizeBytes = $bytes.Length } | ConvertTo-Json)
+    -Body (@{ type = "orisDatabase"; fileName = [IO.Path]::GetFileName($zip); sizeBytes = $size } | ConvertTo-Json)
 $partsOk = $true
-for ($n = 1; $n -le $session.partCount; $n++) {
-    $offset = ($n - 1) * $session.chunkSizeBytes
-    $length = [Math]::Min($session.chunkSizeBytes, $bytes.Length - $offset)
-    $chunk = New-Object byte[] $length
-    [Array]::Copy($bytes, $offset, $chunk, 0, $length)
-    $status = Get-Status { Invoke-WebRequest -UseBasicParsing -WebSession $web -Method Put -Headers $headers -ContentType "application/octet-stream" `
-        -Uri "$Portal/portal-api/uploads/$($session.uploadId)/parts/$n" -Body $chunk }
-    if ($status -ne 204) { $partsOk = $false }
+$uploadStarted = [DateTime]::UtcNow
+# One chunk in memory at a time (.NET Framework arrays can't hold a 2 GB file).
+$stream = [IO.File]::OpenRead($zip)
+try {
+    for ($n = 1; $n -le $session.partCount; $n++) {
+        $length = [int][Math]::Min($session.chunkSizeBytes, $size - $stream.Position)
+        $chunk = New-Object byte[] $length
+        $read = 0
+        while ($read -lt $length) { $read += $stream.Read($chunk, $read, $length - $read) }
+        $status = Get-Status { Invoke-WebRequest -UseBasicParsing -WebSession $web -Method Put -Headers $headers -ContentType "application/octet-stream" `
+            -Uri "$Portal/portal-api/uploads/$($session.uploadId)/parts/$n" -Body $chunk }
+        if ($status -ne 204) { $partsOk = $false }
+    }
 }
-Check "parts uploaded" $partsOk "($($session.partCount) x $([Math]::Round($session.chunkSizeBytes / 1MB, 1)) MB)"
+finally { $stream.Dispose() }
+$uploadSeconds = ([DateTime]::UtcNow - $uploadStarted).TotalSeconds
+Check "parts uploaded" $partsOk ("({0} x {1} MB in {2:0.0} s, {3:0.0} MB/s)" -f $session.partCount, [Math]::Round($session.chunkSizeBytes / 1MB, 1), $uploadSeconds, ($size / 1MB / [Math]::Max($uploadSeconds, 0.001)))
 $sha = (Get-FileHash -Algorithm SHA256 $zip).Hash.ToLower()
 $job = Invoke-RestMethod -WebSession $web -Method Post -Uri "$Portal/portal-api/uploads/$($session.uploadId)/complete" -Headers $headers `
     -ContentType "application/json" -Body (@{ sha256 = $sha } | ConvertTo-Json)
 Check "upload completed, job queued" ([bool]$job.jobId)
+$completedAt = [DateTimeOffset]::UtcNow
 
 # --- 4. Worker -----------------------------------------------------------------
 $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
@@ -128,7 +138,8 @@ do {
     $state = Invoke-RestMethod -Uri "$Api/invitations/$($invitation.invitationId)" -Headers $auth
 } while ($state.processingStatus -notin @("succeeded", "failed") -and [DateTime]::UtcNow -lt $deadline)
 $seconds = [Math]::Round(([DateTime]::UtcNow - $started).TotalSeconds)
-Check "job processed" ($state.processingStatus -eq "succeeded") "(status $($state.status)/$($state.processingStatus), $($state.processingErrorCode), ${seconds}s since start)"
+$jobSeconds = if ($state.processingFinishedAt) { [Math]::Round(([DateTimeOffset]$state.processingFinishedAt - $completedAt).TotalSeconds, 1) } else { "?" }
+Check "job processed" ($state.processingStatus -eq "succeeded") "(status $($state.status)/$($state.processingStatus) $($state.processingErrorCode), job ${jobSeconds} s, ${seconds} s since start)"
 
 # --- 5. Reports ----------------------------------------------------------------
 $tenantHeaders = $auth + @{ "X-Tenant-Id" = $invitation.tenantId }
@@ -140,7 +151,7 @@ $status = Get-Status { Invoke-WebRequest -UseBasicParsing -Headers ($auth + @{ "
 Check "unknown tenant is 404" ($status -eq 404) "($status)"
 
 # --- 6. Seq: the link token must never be logged -------------------------------
-if ($Seq) {
+if ($Seq -and -not $NoSeqCheck) {
     Start-Sleep 5   # let the exporters flush
     $since = $started.ToString("o")
     $events = Invoke-WebRequest -UseBasicParsing -Uri "$Seq/api/events?count=5000&fromDateUtc=$since"
