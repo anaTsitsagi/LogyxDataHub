@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using DataHub.Api;
 using DataHub.Api.Auth;
 using DataHub.Api.Errors;
+using DataHub.Api.Staff;
 using DataHub.Application;
 using DataHub.Hosting;
 using DataHub.Infrastructure;
@@ -17,8 +18,15 @@ builder.Services.AddDataHubInfrastructure(builder.Configuration);
 builder.Services.Configure<ApiAuthOptions>(builder.Configuration.GetSection(ApiAuthOptions.Section));
 builder.Services.AddApiAuthentication(builder.Configuration, builder.Environment);
 
-builder.Services.AddControllers().AddJsonOptions(o =>
+// With views for the staff portal (Local only; see StaffController).
+builder.Services.AddControllersWithViews().AddJsonOptions(o =>
     o.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.CamelCase)));
+builder.Services.Configure<StaffPortalOptions>(builder.Configuration.GetSection(StaffPortalOptions.Section));
+if (builder.Environment.IsEnvironment(ApiAuthentication.LocalEnvironment))
+{
+    // The staff portal's form tokens; keys in the database, because the container's filesystem is read-only.
+    builder.Services.AddDataHubDataProtection("datahub-api");
+}
 builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<DataHubExceptionHandler>();
 builder.Services.AddHealthChecks().AddDataHubReadiness();

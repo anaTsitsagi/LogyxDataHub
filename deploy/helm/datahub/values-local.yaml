@@ -23,6 +23,9 @@ config:
   Smtp__From: datahub@localtest.me
   Otlp__Endpoint: http://seq/ingest/otlp
   Otlp__ExportMetrics: "true"
+  # Staff portal (https://api.datahub.localtest.me/staff; Local environment only).
+  StaffPortal__MailpitUrl: http://mailpit.localtest.me
+  StaffPortal__SmsOutboxHint: .local\sms-outbox-k8s
 
 apps:
   web:

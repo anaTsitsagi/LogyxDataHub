@@ -117,6 +117,21 @@ public sealed class ReportService(IDataHubDb db, IOptions<BalanceSheetOptions> b
         return BalanceSheetBuilder.Build(asOf, Oris.GelConverter.NationalCurrency, lines);
     }
 
+    /// <summary>First and last operation date in the company's active data; null when it has none yet.</summary>
+    public async Task<(DateOnly From, DateOnly To)?> DataPeriodAsync(Guid tenantId, CancellationToken ct)
+    {
+        var datasetId = await db.Companies.AsNoTracking().Where(c => c.TenantId == tenantId)
+            .Select(c => c.ActiveDatasetId).SingleOrDefaultAsync(ct);
+        if (datasetId is null) return null;
+
+        var period = await db.JournalEntries.AsNoTracking()
+            .Where(j => j.DatasetId == datasetId && j.OperationDate != null)
+            .GroupBy(_ => 1)
+            .Select(g => new { From = g.Min(j => j.OperationDate), To = g.Max(j => j.OperationDate) })
+            .SingleOrDefaultAsync(ct);
+        return period is { From: { } from, To: { } to } ? (from, to) : null;
+    }
+
     private async Task<Guid> ActiveDatasetAsync(Guid tenantId, CancellationToken ct)
     {
         var company = await db.Companies.AsNoTracking()
