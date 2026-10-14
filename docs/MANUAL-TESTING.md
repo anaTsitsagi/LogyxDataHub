@@ -32,7 +32,6 @@ If something fails, see section 7.
 
 | What | Address | Login |
 |---|---|---|
-| **Bank staff portal** (send invitations, follow them, open reports) | https://api.datahub.localtest.me/staff | none (local test tool) |
 | Customer portal | https://datahub.localtest.me | via the invitation link (section 4) |
 | API + Swagger (as TBC LOS) | https://api.datahub.localtest.me/swagger | dev token (section 4, step 1) |
 | Mailpit (all emails: links and codes) | http://mailpit.localtest.me | none |
@@ -43,23 +42,6 @@ If something fails, see section 7.
 `*.localtest.me` resolves to your own PC; nothing leaves the machine.
 
 ## 4. The main flow, step by step
-
-There are two ways to act as the bank: the **staff portal** (a web page, easiest) or **Swagger** (the real API that
-TBC LOS uses). Steps 3 and 4 (the customer's side) are the same for both.
-
-### Steps 1–2, the easy way: the bank staff portal
-1. Open https://api.datahub.localtest.me/staff.
-2. Fill in **company code** (a new 9-digit number each time, e.g. `400000001`), **company name**, **email**
-   (e.g. `owner@example.ge`) and **mobile phone** (e.g. `+995 555 12 34 56`); tick **Email** and/or **SMS**.
-3. **Send invitation**. The result page shows "Invitation sent by email + SMS", the **customer link**, the
-   invitation and tenant ids, and an **Open Mailpit** link.
-4. **Refresh status** on that page (or the list under the form at `/staff`) to follow it:
-   *Sent → Customer verified → Queued/Processing → Processed* (or *Failed* with the error code).
-
-Continue with step 3 below. A bad input (e.g. an 8-digit company code, or Email ticked without an email address)
-is shown on the form in red and nothing is sent. The page answers only in the local test environment.
-
-### Steps 1–2, the API way: Swagger (as TBC LOS)
 
 ### Step 1: Get an API token (acting as LOS)
 1. Open https://api.datahub.localtest.me/swagger.
@@ -100,11 +82,7 @@ While it runs, in Swagger: `GET /invitations/{id}` with the `invitationId` shows
 `processingStatus` (`Queued`, `Processing`, `Succeeded`/`Failed`).
 
 ### Step 5: Read the reports (acting as LOS / Risk)
-**Staff portal:** on the invitation's page (`/staff` → **Details**) the **Reports** section appears once the
-upload is processed. It shows which dates the company's data covers and pre-fills them; each button
-(**Journal entries**, **Turnover register**, **Balance sheet**) opens the report as JSON in a new tab.
-
-**Swagger:** for each report fill in **`X-Tenant-Id`** = the `tenantId` from step 2:
+In Swagger, for each report fill in **`X-Tenant-Id`** = the `tenantId` from step 2:
 
 | Endpoint | Parameters to try |
 |---|---|
