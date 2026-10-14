@@ -190,6 +190,11 @@ Logyx must also provide TBC with a **testing environment**.
   - document `dev` exists **only in the Local environment**; it adds `/dev/token` (pre-filled with working defaults via `[DefaultValue]`)
   - `OpenApiExamples.cs` (a schema filter) gives `POST /invitations` a valid **example** body. It is an example, not a default, because `v1` is the contract TBC reads.
 - Health: `/health/live` (no checks) and `/health/ready` (database). The portal has the same two endpoints.
+- **Bank staff portal `/staff` (added 2026-10-15 at the user's request; a local test tool, not a TBC deliverable):** a browser page in DataHub.Api that does what LOS does through the API, for testing by hand.
+  - Form: company code, name, email, phone, email/SMS checkboxes → `InvitationService.CreateAsync` with client id `staff-portal`. A key generated with the form is the `Idempotency-Key`, so a double click or reload sends one invitation.
+  - Result page: the customer link, invitation and tenant ids, delivered channels, a Mailpit link (`StaffPortal:MailpitUrl`), status with the latest job. List of the 25 latest invitations of **all** clients (`InvitationService.ListRecentAsync`/`GetSummaryAsync`, not client-scoped like `GET /invitations/{id}`).
+  - Report shortcuts: `GET /staff/reports/{tenantId}/{journal-entries|turnover-register|balance-sheet}` return the `ReportService` JSON without a token, the dates pre-filled from the company's data period (`ReportService.DataPeriodAsync`).
+  - **Local environment only:** `[LocalOnly]` (an authorization filter, so it runs before the antiforgery check) answers 404 everywhere else, like `/dev/token`; therefore no staff login. Forms carry antiforgery tokens; the API gets a database key ring (application name `datahub-api`) only in Local. A staff portal for TBC itself would need TBC's staff login (OIDC), roles and an audit trail.
 
 **Portal (DataHub.Web)**
 - ASP.NET Core MVC, Georgian first with English alongside.
@@ -425,6 +430,9 @@ CLAUDE.md   points Claude Code sessions to this file
 | 8 | Load test + resource estimate | **Done, in review**: PR #4 | on `feature/step8-resources` |
 | 8b | TBC deployment feedback: disk-free worker, worker pinned to a node | **On hold** (waiting for the user's go and TBC's answers) | – |
 | 9 | Release packaging + SFTP upload | Planned | – |
+| T | Local test tooling: `start-all.ps1`, `docs/MANUAL-TESTING.md`, bank staff portal `/staff` (Local only) | **Done, in review** | `feature/local-start-all`, `feature/staff-portal` |
+
+**Update (2026-10-15):** branches in review, each based on the previous one: `feature/local-start-all` (start-all script, manual testing guide) → `feature/bump-vulnerable-packages` (.NET 10.0.13 packages) → `feature/staff-portal` (bank staff portal at https://api.datahub.localtest.me/staff, see 3.2 "API"). **141 tests passing** (Api 32 with `StaffPortalTests`), 0 build warnings; the staff portal was checked live on the local cluster (invitation → Mailpit and SMS outbox; HIRO's details page and the three report shortcuts).
 
 **Resume point (2026-10-05):** step 8 is done on `feature/step8-resources` (from `main` after PR #3 was merged); in review as PR #4. TBC answered with deployment feedback (step 8b below); a reply was drafted for the user, and **the implementation waits for the user's instructions**. Otherwise next: step 9. For a full test by hand on the local cluster: `scripts/local/start-all.ps1` and the checklist in 6.7 (branch `feature/local-start-all`). **131 tests passing** (Oris 34, Infrastructure 56, Api 22, Web 17, Worker 2), 0 build warnings.
 
@@ -729,6 +737,7 @@ powershell -ExecutionPolicy Bypass -File scripts\local\k8s-down.ps1 -Purge      
 |---|---|
 | Portal | https://datahub.localtest.me |
 | API + Swagger | https://api.datahub.localtest.me/swagger (dev token as in 6.6) |
+| Bank staff portal (Local only) | https://api.datahub.localtest.me/staff (`https://localhost:7174/staff` with `dotnet run`) |
 | Seq | http://seq.localtest.me |
 | Mailpit | http://mailpit.localtest.me |
 | RabbitMQ UI | http://rabbitmq.localtest.me (user `datahub`, password in `.local\k8s\secrets.json`) |
@@ -791,7 +800,7 @@ If something fails: `kubectl get pods -n datahub-local`; `kubectl logs -n datahu
    - `helm upgrade` with a migration.
 5. The load test produces `docs/resource-estimate.md`.
 
-### 7.2 Current test inventory (131 tests, all passing, 0 build warnings)
+### 7.2 Current test inventory (141 tests, all passing, 0 build warnings)
 - **DataHub.Oris.Tests (34):**
   - `ParsingRulesTests`: Georgian decoding, Clarion dates, account parsing rules
   - `SampleFileTests`: the reference `WIRING.TPS` (16,781 rows, total 10,525,411.79), the HIRO `Acc_name.tps`, detection of the encrypted `ACCOUNT.TPS`
@@ -815,8 +824,9 @@ If something fails: `kubectl get pods -n datahub-local`; `kubectl logs -n datahu
     - an abandoned job is requeued and claimed; an abandoned job on its last attempt fails
   - `HiroReportTests` (5), HIRO with its real `Rate.tps`: the 2024 turnover register matches ORIS; a turnover filtered by account totals that account; the Q1 journals for accounts 1210 and 1410 match ORIS extracts; the balance sheet balances and matches the turnover closing.
   - `AccountFilterTests`: ORIS and compact account forms; an account matches everything nested under it; invalid account numbers are rejected.
-- **DataHub.Api.Tests (22):**
+- **DataHub.Api.Tests (32):**
   - `InvitationsApiTests` (6): auth required, scope enforced, create/get invitation, idempotency over HTTP, client isolation, validation ProblemDetails.
+  - `StaffPortalTests` (10): the form renders with a token; sending creates a `staff-portal` invitation, delivers the link by email and SMS and lists it; the same form twice sends one invitation; invalid input is shown and nothing sent; a POST without the form token is 400; the details page shows the data period and the report shortcuts return JSON (400 without dates, 404 unknown tenant); unknown invitation 404; 404 outside the Local environment.
   - `ReportsApiTests`: the reports scope is required; the tenant header is required and must be known; a company without processed data gets a clear 404; a `tenantId` query must match the header; each tenant sees only its own data; journal contract fields, inclusive dates and paging headers; journal filters by ORIS-form account and currency; invalid parameters are rejected with a code; turnover and balance-sheet contract shapes; readiness checks the database.
 - **DataHub.Web.Tests (17):**
   - `PortalFlowTests` (6):

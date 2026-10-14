@@ -131,6 +131,7 @@ if ($SmokeZip) {
 # --- 7. Summary -----------------------------------------------------------------
 Write-Host ""
 Write-Host "DataHub is ready in namespace ${Namespace}:" -ForegroundColor Green
+Write-Host "  Staff     https://api.datahub.localtest.me/staff     (bank staff portal: send invitations, open reports)"
 Write-Host "  Portal    https://datahub.localtest.me"
 Write-Host "  API       https://api.datahub.localtest.me/swagger   (definition 'dev (local token)' -> POST /dev/token)"
 Write-Host "  Seq       http://seq.localtest.me"
