@@ -750,9 +750,10 @@ powershell -ExecutionPolicy Bypass -File scripts\local\k8s-down.ps1 -Purge      
 Pitfalls: a token from `/dev/token` with other values has no scopes → 403; the `http` profile breaks the portal (`__Host-` cookies); PowerShell 5.1 strips quotes from inline JSON passed to `curl.exe` (use `--data-binary @file`).
 
 ### 6.7 Full test on the local cluster (by hand)
+Step-by-step guide with addresses, example requests and expected results: **`docs/MANUAL-TESTING.md`**. Short version:
 0. **Prerequisites:** Rancher Desktop running with Kubernetes; an ORIS company folder zipped into `.local\test-data\` (e.g. `HIRO.zip`; never inside the tracked repo); optional: trust `.local\k8s\tls.crt` (8.3) so the browser doesn't warn.
 1. **Start and automated baseline:** `powershell -ExecutionPolicy Bypass -File scripts\local\start-all.ps1 -Rebuild -SmokeZip .local\test-data\HIRO.zip` → every smoke-test check `PASS`, exit 0. (Without code changes since the last build, leave out `-Rebuild`.)
-2. **Invitation (as LOS):** https://api.datahub.localtest.me/swagger → definition **"dev (local token)"** → `POST /dev/token` (pre-filled) → copy `access_token` → **Authorize** → `POST /invitations` with a new `companyCode`. Keep `id`, `tenantId` and `link`.
+2. **Invitation (as LOS):** https://api.datahub.localtest.me/swagger → definition **"dev (local token)"** → `POST /dev/token` (pre-filled) → copy `access_token` → **Authorize** → `POST /invitations` with a new `companyCode`. Keep `invitationId`, `tenantId` and `link`.
 3. **Messages:** the link email in http://mailpit.localtest.me; the SMS in `.local\sms-outbox-k8s`.
 4. **Customer portal:** open the `link`, enter the company code, type the OTP from Mailpit, upload the ZIP; `/status` reaches "processed". Meanwhile `GET /invitations/{id}` shows each status change.
 5. **Reports:** `GET /reports/*` with `X-Tenant-Id: <tenantId>`, `fromDate=2024-01-01&toDate=2024-12-31`: journal, turnover, balance sheet. Compare with ORIS / the reference XLSX files.
