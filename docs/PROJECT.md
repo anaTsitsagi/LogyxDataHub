@@ -426,7 +426,7 @@ CLAUDE.md   points Claude Code sessions to this file
 | 8b | TBC deployment feedback: disk-free worker, worker pinned to a node | **On hold** (waiting for the user's go and TBC's answers) | – |
 | 9 | Release packaging + SFTP upload | Planned | – |
 
-**Resume point (2026-10-05):** step 8 is done on `feature/step8-resources` (from `main` after PR #3 was merged); in review as PR #4. TBC answered with deployment feedback (step 8b below); a reply was drafted for the user, and **the implementation waits for the user's instructions**. Otherwise next: step 9. **131 tests passing** (Oris 34, Infrastructure 56, Api 22, Web 17, Worker 2), 0 build warnings.
+**Resume point (2026-10-05):** step 8 is done on `feature/step8-resources` (from `main` after PR #3 was merged); in review as PR #4. TBC answered with deployment feedback (step 8b below); a reply was drafted for the user, and **the implementation waits for the user's instructions**. Otherwise next: step 9. For a full test by hand on the local cluster: `scripts/local/start-all.ps1` and the checklist in 6.7 (branch `feature/local-start-all`). **131 tests passing** (Oris 34, Infrastructure 56, Api 22, Web 17, Worker 2), 0 build warnings.
 
 ### ⏸ Step 8b: TBC deployment feedback (received 2026-10-05; on hold)
 **What TBC wrote** (deployment reviewer's email, in Georgian; summary):
@@ -711,9 +711,15 @@ wsl -d rancher-desktop sh -c 'printf "nameserver 8.8.8.8\nnameserver 1.1.1.1\n" 
 # Linux-only PATH and an empty docker config: the VM's credential helpers call back to Windows and hang
 wsl -d rancher-desktop sh -c 'export PATH=/usr/sbin:/usr/bin:/sbin:/bin DOCKER_CONFIG=/tmp/dh-dockercfg; mkdir -p $DOCKER_CONFIG; echo {} > $DOCKER_CONFIG/config.json; cd /mnt/c/Users/anaci/source/repos/LogyxDataHubRepo; for a in web api worker migrator; do docker build -f deploy/docker/Dockerfile --target $a --build-arg VERSION=0.1.0 -t datahub-$a:0.1.0 . || exit 1; done'
 ```
+**Update 2026-10-14:** the Windows `docker` CLI answered again and `build-images.ps1` built all four images from Windows; `start-all.ps1` (6.5) tries Windows first and falls back to the VM build above.
 From Git Bash, prefix `wsl` with `MSYS_NO_PATHCONV=1` so `/mnt/c/...` isn't rewritten. Pass connection strings to `docker run` with `--env-file` (they contain spaces).
 
 ### 6.5 Run on the local Kubernetes cluster (Rancher Desktop)
+**One command (recommended):** `scripts\local\start-all.ps1` checks the cluster, builds the images if they are missing (`-Rebuild`: always, from the working tree; through the Windows `docker` CLI if it answers, otherwise inside the Rancher VM as in 6.4), runs `k8s-up.ps1`, restarts the app pods after a rebuild, waits for `/health/ready` on the portal and the API, and with `-SmokeZip` runs the smoke test (exit code = the smoke test's).
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\local\start-all.ps1 -Rebuild -SmokeZip .local\test-data\HIRO.zip
+```
+The individual steps:
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\local\k8s-up.ps1 -Version 0.1.0     # idempotent; the images must exist (6.4)
 powershell -ExecutionPolicy Bypass -File scripts\local\k8s-down.ps1                  # stop, keep the data
@@ -742,6 +748,20 @@ powershell -ExecutionPolicy Bypass -File scripts\local\k8s-down.ps1 -Purge      
 5. Reports: `GET /reports/*` with the invitation's `tenantId` in `X-Tenant-Id`, e.g. `fromDate=2024-01-01&toDate=2024-12-31`.
 
 Pitfalls: a token from `/dev/token` with other values has no scopes → 403; the `http` profile breaks the portal (`__Host-` cookies); PowerShell 5.1 strips quotes from inline JSON passed to `curl.exe` (use `--data-binary @file`).
+
+### 6.7 Full test on the local cluster (by hand)
+0. **Prerequisites:** Rancher Desktop running with Kubernetes; an ORIS company folder zipped into `.local\test-data\` (e.g. `HIRO.zip`; never inside the tracked repo); optional: trust `.local\k8s\tls.crt` (8.3) so the browser doesn't warn.
+1. **Start and automated baseline:** `powershell -ExecutionPolicy Bypass -File scripts\local\start-all.ps1 -Rebuild -SmokeZip .local\test-data\HIRO.zip` → every smoke-test check `PASS`, exit 0. (Without code changes since the last build, leave out `-Rebuild`.)
+2. **Invitation (as LOS):** https://api.datahub.localtest.me/swagger → definition **"dev (local token)"** → `POST /dev/token` (pre-filled) → copy `access_token` → **Authorize** → `POST /invitations` with a new `companyCode`. Keep `id`, `tenantId` and `link`.
+3. **Messages:** the link email in http://mailpit.localtest.me; the SMS in `.local\sms-outbox-k8s`.
+4. **Customer portal:** open the `link`, enter the company code, type the OTP from Mailpit, upload the ZIP; `/status` reaches "processed". Meanwhile `GET /invitations/{id}` shows each status change.
+5. **Reports:** `GET /reports/*` with `X-Tenant-Id: <tenantId>`, `fromDate=2024-01-01&toDate=2024-12-31`: journal, turnover, balance sheet. Compare with ORIS / the reference XLSX files.
+6. **Negative cases:** wrong company code (error, no code sent); a file that isn't a ZIP, and a ZIP without `.tps` files (bilingual error, nothing queued); reports with an unknown `X-Tenant-Id` → 404; a token without the scope → 403.
+7. **Observability:** in Seq, logs from web, api and worker; the worker's `process job` span in the same trace as the portal's `POST portal-api/uploads/{uploadId}/complete`; searching for the link token finds nothing (paths show `/i/***`). RabbitMQ UI: the queue is empty, no unacked messages.
+8. **Optional:** upload newer data for the same company (it replaces the old data); `k8s-down.ps1` then `start-all.ps1` → the invitation and reports are still there.
+9. **Stop:** `powershell -ExecutionPolicy Bypass -File scripts\local\k8s-down.ps1` (keeps the data) or `... -Purge` (deletes it).
+
+If something fails: `kubectl get pods -n datahub-local`; `kubectl logs -n datahub-local deploy/datahub-worker` (or `-web`, `-api`); `kubectl logs -n datahub-local job/datahub-migrator`; a VM build that can't resolve names needs the DNS fix in 6.4 (`start-all.ps1` applies it).
 
 ---
 
@@ -839,6 +859,7 @@ Run everything: `dotnet test LogyxDataHub.sln` (needs LocalDB; sample tests skip
 - **Portal key ring at rest:** the Data Protection keys sit in `datahub.DataProtectionKeys` protected only by database access control. Options if TBC wants more: encrypt them with a certificate from a Kubernetes Secret (`ProtectKeysWithCertificate`), or keep as is.
 
 ### 8.3 Actions for the user
+- **Vulnerable NuGet packages (found 2026-10-14):** the image build's restore warns NU1902/NU1903, and `dotnet list package --vulnerable --include-transitive` reports `System.Security.Cryptography.Pkcs` (High; 10.0.0 in DataHub.Api, 10.0.12 elsewhere), `System.Security.Cryptography.Xml` 10.0.12 (High) and, in the legacy `LogyxDataHub`, `System.IdentityModel.Tokens.Jwt` / `Microsoft.IdentityModel.JsonWebTokens` 7.0.3 (Moderate). The local `dotnet build` shows 0 warnings because the restore is cached. Decide whether to bump them before the release (step 9).
 - **Rotate the leaked credentials:** the Azure SQL admin password, the JWT key and the DevExpress key. The old values are still in `main`'s history on GitHub.
 - Add `Jwt__Key` and `ConnectionStrings__LogyxConnection` to the Azure App Service configuration.
 - Confirm deleting the old untracked copy `source\repos\LogyxDataHub`.
