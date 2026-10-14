@@ -23,6 +23,7 @@ public static class PortalText
         ["UPLOAD_NO_TPS"] = new("არქივში ORIS-ის .tps ფაილები ვერ მოიძებნა.", "The archive does not contain any ORIS .tps files."),
         ["UPLOAD_UNSAFE_PATH"] = new("არქივი შეიცავს დაუშვებელ ფაილის გზას.", "The archive contains an unsafe file path."),
         ["UPLOAD_TOO_MANY_FILES"] = new("არქივში ძალიან ბევრი ფაილია.", "The archive contains too many files."),
+        ["ORIS_JOURNAL_TOO_LARGE"] = new("ORIS-ის გატარებების ფაილი (WIRING.TPS) ავტომატური დამუშავებისთვის ზედმეტად დიდია. გთხოვთ, დაუკავშირდეთ ბანკს.", "The ORIS journal file (WIRING.TPS) is too large to process automatically. Please contact the bank."),
         ["UPLOAD_TOO_LARGE_UNCOMPRESSED"] = new("არქივის გაშლილი ზომა დასაშვებზე დიდია.", "The archive expands to more data than allowed."),
         ["UPLOAD_SUSPICIOUS_COMPRESSION"] = new("არქივი არ გამოიყურება როგორც ORIS-ის ბაზა.", "The archive does not look like an ORIS database."),
         ["UPLOAD_INCOMPLETE"] = new("ატვირთვა არ დასრულებულა. სცადეთ ხელახლა — ატვირთვა გაგრძელდება იქიდან, სადაც შეწყდა.", "The upload is incomplete. Try again — it will resume where it stopped."),

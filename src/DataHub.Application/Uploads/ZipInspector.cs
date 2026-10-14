@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using DataHub.Oris;
 
 namespace DataHub.Application.Uploads;
 
@@ -42,6 +43,10 @@ public static class ZipInspector
                 // Zip bomb guard: legitimate TPS data compresses well, but not a thousand-fold.
                 if (entry.CompressedLength > 0 && entry.Length / entry.CompressedLength > limits.MaxCompressionRatio)
                     throw Invalid("UPLOAD_SUSPICIOUS_COMPRESSION", "The archive has an unusual compression ratio.");
+
+                // The worker holds the journal table in memory; refuse one it can't process before it is queued.
+                if (string.Equals(entry.Name, OrisReader.JournalFile, StringComparison.OrdinalIgnoreCase) && entry.Length > limits.MaxJournalBytes)
+                    throw Invalid(ProcessingErrors.JournalTooLarge, "The ORIS journal file (WIRING.TPS) is too large to process.");
 
                 if (name.EndsWith(".tps", StringComparison.OrdinalIgnoreCase))
                     tps.Add(name);

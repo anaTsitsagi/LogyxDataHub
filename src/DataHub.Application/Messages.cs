@@ -61,6 +61,7 @@ public static class Messages
         [ProcessingErrors.MultipleDatabases] = ("არქივში რამდენიმე კომპანიის ბაზაა. ატვირთეთ მხოლოდ ერთი კომპანიის ბაზა.", "The archive contains more than one company database. Please upload one company only."),
         [ProcessingErrors.Unreadable] = ("ORIS-ის ფაილის წაკითხვა ვერ მოხერხდა (შესაძლოა დაზიანებული ან დაშიფრულია).", "The ORIS file could not be read (it may be damaged or encrypted)."),
         [ProcessingErrors.RatesMissing] = ("ORIS-ის ბაზაში ვალუტის კურსი ვერ მოიძებნა (Rate.tps). ატვირთეთ სრული ბაზა.", "An exchange rate is missing from the ORIS database (Rate.tps). Please upload the complete database."),
+        [ProcessingErrors.JournalTooLarge] = ("ORIS-ის გატარებების ფაილი (WIRING.TPS) ავტომატური დამუშავებისთვის ზედმეტად დიდია. გთხოვთ, დაუკავშირდეთ ბანკს.", "The ORIS journal file (WIRING.TPS) is too large to process automatically. Please contact the bank."),
         [ProcessingErrors.EmptyJournal] =("ORIS-ის ბაზაში გატარებები არ არის.", "The ORIS database contains no journal entries."),
         [ProcessingErrors.Corrupted] = ("ფაილი ატვირთვისას დაზიანდა.", "The file was damaged during upload."),
         [ProcessingErrors.NotZip] = ("ფაილი არ არის ZIP არქივი.", "The file is not a valid ZIP archive."),
@@ -86,6 +87,7 @@ public static class ProcessingErrors
     public const string Unreadable = "ORIS_UNREADABLE";
     public const string EmptyJournal = "ORIS_EMPTY_JOURNAL";
     public const string RatesMissing = "ORIS_RATES_MISSING";
+    public const string JournalTooLarge = "ORIS_JOURNAL_TOO_LARGE";
     public const string Corrupted = "UPLOAD_CORRUPTED";
     public const string NotZip = "UPLOAD_NOT_ZIP";
     public const string TypeNotSupported = "PROCESSING_TYPE_NOT_SUPPORTED";

@@ -22,6 +22,13 @@ public sealed class UploadOptions
     public int MaxZipEntries { get; set; } = 5_000;
     public int MaxCompressionRatio { get; set; } = 200;
 
+    /// <summary>
+    /// Largest ORIS journal table (WIRING.TPS, uncompressed) accepted. The TPS parser holds the whole table in
+    /// memory: the worker needs about 350 MiB + 28 MiB per MB of it (docs/resource-estimate.md), so the default
+    /// suits a 2 GiB worker. Raise it together with the worker's memory limit.
+    /// </summary>
+    public long MaxJournalBytes { get; set; } = 55L * 1024 * 1024;
+
     /// <summary>ORIS entries CSV upload is a later phase; the portal shows it disabled until enabled here.</summary>
     public bool EntriesCsvEnabled { get; set; }
 }

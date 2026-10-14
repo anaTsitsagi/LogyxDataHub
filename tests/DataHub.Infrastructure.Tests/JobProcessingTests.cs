@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using DataHub.Application;
 using DataHub.Application.Processing;
 using DataHub.Application.Security;
+using DataHub.Application.Uploads;
 using DataHub.Domain;
 using DataHub.Infrastructure.Persistence;
 using DataHub.Oris.Tests;
@@ -26,6 +27,8 @@ public sealed class JobProcessingTests : IDisposable
     private readonly FakeEmail _email = new();
     private readonly string _tempDirectory = Path.Combine(Path.GetTempPath(), $"datahub-test-{Guid.NewGuid():N}");
     private readonly ServiceProvider _services;
+    // Read when the options are first resolved, so a test can lower it before its first ProcessAsync.
+    private long _maxJournalBytes = new UploadOptions().MaxJournalBytes;
 
     public JobProcessingTests(SqlDatabaseFixture fixture)
     {
@@ -41,6 +44,7 @@ public sealed class JobProcessingTests : IDisposable
         services.AddSingleton<IEmailSender>(_email);
         services.Configure<SecurityOptions>(o => o.SigningKey = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32)));
         services.Configure<ProcessingOptions>(o => o.TempDirectory = _tempDirectory);
+        services.Configure<UploadOptions>(o => o.MaxJournalBytes = _maxJournalBytes);
         _services = services.BuildServiceProvider();
     }
 
@@ -184,6 +188,22 @@ public sealed class JobProcessingTests : IDisposable
         Assert.Null(company.ActiveDatasetId);
         AssertCustomerNotifiedOfFailure();
         Assert.Contains("WIRING.TPS", _email.Sent[0].Body);
+    }
+
+    [Fact]
+    public async Task Journal_larger_than_the_worker_is_sized_for_fails_before_it_is_read()
+    {
+        _maxJournalBytes = 100;
+        var s = await SeedAsync(Zip(("HIRO/WIRING.TPS", new byte[500]), ("HIRO/Acc_name.tps", [1, 2, 3])));
+
+        Assert.Equal(JobOutcome.Failed, await ProcessAsync(s.Message));
+
+        var (job, invitation, company) = await StateAsync(s);
+        Assert.Equal((JobStatus.Failed, ProcessingErrors.JournalTooLarge), (job.Status, job.ErrorCode));
+        Assert.Equal(InvitationStatus.Failed, invitation.Status);
+        Assert.Null(company.ActiveDatasetId);
+        AssertCustomerNotifiedOfFailure();
+        Assert.Contains("too large", _email.Sent[0].Body);
     }
 
     [Fact]
