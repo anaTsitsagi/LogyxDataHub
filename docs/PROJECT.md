@@ -1,6 +1,6 @@
 # Logyx DataHub for TBC Bank: project reference
 
-_Last updated: 2026-10-05. Steps 0–7 are merged into `main` (PR #1–#3). Step 8 is done on `feature/step8-resources`, in review as PR #4. TBC's deployment feedback (no disks in their K8s, worker pinned to one node) is recorded in step 8b, on hold until the user decides._
+_Last updated: 2026-10-15. Steps 0–8 and the local test tooling (start-all, manual testing guide, bank staff portal) are merged into `main` (PR #1–#7). TBC's deployment feedback (no disks in their K8s, worker pinned to one node) is recorded in step 8b, on hold until the user decides._
 
 **This file is the single reference for the project:** context, requirements, every decision, architecture, status per step, how to run it, open items and lessons learned.
 - Read it at the start of any work session.
@@ -427,14 +427,14 @@ CLAUDE.md   points Claude Code sessions to this file
 | 5a | Local run without Docker + Swagger for local testing | **Done**, verified live with HIRO | `4567109`, `1e6c3b1` |
 | 6 | Cross-cutting: OTLP logging, telemetry, Migrator, Dockerfiles | **Done**, merged (PR #2) | `67eadba` |
 | 7 | Local k3s test environment + Helm chart | **Done**, merged (PR #3) | on `feature/step7-local-k8s` |
-| 8 | Load test + resource estimate | **Done, in review**: PR #4 | on `feature/step8-resources` |
+| 8 | Load test + resource estimate | **Done**, merged (PR #4) | `feature/step8-resources` |
 | 8b | TBC deployment feedback: disk-free worker, worker pinned to a node | **On hold** (waiting for the user's go and TBC's answers) | – |
 | 9 | Release packaging + SFTP upload | Planned | – |
-| T | Local test tooling: `start-all.ps1`, `docs/MANUAL-TESTING.md`, bank staff portal `/staff` (Local only) | **Done, tested by hand; in review** | `feature/staff-portal` (includes `feature/local-start-all`) |
+| T | Local test tooling: `start-all.ps1`, `docs/MANUAL-TESTING.md`, bank staff portal `/staff` (Local only) | **Done**, tested by hand, merged (PR #7, with #5 and #6) | `507461f` |
 
-**Update (2026-10-15):** branches in review, each based on the previous one: `feature/local-start-all` (start-all script, manual testing guide) → `feature/bump-vulnerable-packages` (.NET 10.0.13 packages) → `feature/staff-portal` (bank staff portal at https://api.datahub.localtest.me/staff, see 3.2 "API"). **141 tests passing** (Api 32 with `StaffPortalTests`), 0 build warnings; the staff portal was checked live on the local cluster (invitation → Mailpit and SMS outbox; HIRO's details page and the three report shortcuts).
+**Update (2026-10-15):** branches, each based on the previous one (all merged into `main` with PR #7): `feature/local-start-all` (start-all script, manual testing guide) → `feature/bump-vulnerable-packages` (.NET 10.0.13 packages) → `feature/staff-portal` (bank staff portal at https://api.datahub.localtest.me/staff, see 3.2 "API"). **141 tests passing** (Api 32 with `StaffPortalTests`), 0 build warnings; the staff portal was checked live on the local cluster (invitation → Mailpit and SMS outbox; HIRO's details page and the three report shortcuts).
 
-**Resume point (2026-10-15):** the user tested the full flow by hand on the local cluster (staff portal → Mailpit → customer upload → reports): all fine. PR #4 is merged into `main`; PRs #5 (`feature/local-start-all`) and #6 (`feature/bump-vulnerable-packages`) were merged into `feature/staff-portal`, so that branch now holds all three and goes to `main` in one PR. Step 8b (TBC deployment feedback, below) still **waits for the user's instructions**; otherwise next: step 9. Still open: the Georgian wording check. A restart of the PC finishes the .NET SDK 10.0.402 install (8.3). **141 tests passing** (Oris 34, Infrastructure 56, Api 32, Web 17, Worker 2), 0 build warnings.
+**Resume point (2026-10-15, end of day):** everything is on `main`: PR #4 (step 8) and PR #7 (`feature/staff-portal`, which holds #5 `feature/local-start-all` and #6 `feature/bump-vulnerable-packages`), merge `507461f`. Nothing is in review. The user tested the full flow by hand again on images rebuilt from that branch (staff portal → Mailpit → customer upload → reports): all fine. That run found and fixed a bug in `start-all.ps1`'s VM build (`wsl --exec`, see 10). The local cluster is stopped with `k8s-down.ps1`, volumes kept; start it again with `start-all.ps1` (6.5). Step 8b (TBC deployment feedback, below) still **waits for the user's instructions**; otherwise next: step 9. Still open: the Georgian wording check. A restart of the PC finishes the .NET SDK 10.0.402 install (8.3). **141 tests passing** (Oris 34, Infrastructure 56, Api 32, Web 17, Worker 2), 0 build warnings.
 
 ### ⏸ Step 8b: TBC deployment feedback (received 2026-10-05; on hold)
 **What TBC wrote** (deployment reviewer's email, in Georgian; summary):
