@@ -716,8 +716,9 @@ powershell -ExecutionPolicy Bypass -File scripts\build-images.ps1 -Version 0.1.0
 ```powershell
 # DNS: public resolvers until Rancher restarts (Rancher rewrites the file on start)
 wsl -d rancher-desktop sh -c 'printf "nameserver 8.8.8.8\nnameserver 1.1.1.1\n" > /etc/resolv.conf'
-# Linux-only PATH and an empty docker config: the VM's credential helpers call back to Windows and hang
-wsl -d rancher-desktop sh -c 'export PATH=/usr/sbin:/usr/bin:/sbin:/bin DOCKER_CONFIG=/tmp/dh-dockercfg; mkdir -p $DOCKER_CONFIG; echo {} > $DOCKER_CONFIG/config.json; cd /mnt/c/Users/anaci/source/repos/LogyxDataHubRepo; for a in web api worker migrator; do docker build -f deploy/docker/Dockerfile --target $a --build-arg VERSION=0.1.0 -t datahub-$a:0.1.0 . || exit 1; done'
+# Linux-only PATH and an empty docker config: the VM's credential helpers call back to Windows and hang.
+# --exec: without it wsl runs the command through the VM's login shell first, which expands $DOCKER_CONFIG and $a to "".
+wsl -d rancher-desktop --exec sh -c 'export PATH=/usr/sbin:/usr/bin:/sbin:/bin DOCKER_CONFIG=/tmp/dh-dockercfg; mkdir -p $DOCKER_CONFIG; echo {} > $DOCKER_CONFIG/config.json; cd /mnt/c/Users/anaci/source/repos/LogyxDataHubRepo; for a in web api worker migrator; do docker build -f deploy/docker/Dockerfile --target $a --build-arg VERSION=0.1.0 -t datahub-$a:0.1.0 . || exit 1; done'
 ```
 **Update 2026-10-14:** the Windows `docker` CLI answered again and `build-images.ps1` built all four images from Windows; `start-all.ps1` (6.5) tries Windows first and falls back to the VM build above.
 From Git Bash, prefix `wsl` with `MSYS_NO_PATHCONV=1` so `/mnt/c/...` isn't rewritten. Pass connection strings to `docker run` with `--env-file` (they contain spaces).
@@ -941,3 +942,4 @@ Run everything: `dotnet test LogyxDataHub.sln` (needs LocalDB; sample tests skip
 | The link token reached Seq in the `RequestPath` property of ASP.NET Core's request scope (on "Email sent" during `POST /i/{token}`); the log-capture test only checked rendered messages | `RequestPathRedactor` Serilog enricher; unit test through a real MEL scope |
 | Seq as a non-admin process: HTTP.sys needs a URL reservation; first run needs an admin password or no-auth; `localhost` bound to `0.0.0.0` under Kestrel | `api.webServer=Kestrel`, `api.listenUris=http://127.0.0.1:5341`, `SEQ_FIRSTRUN_NOAUTHENTICATION=true` |
 | Rancher Desktop 1.24: Windows `docker` times out on the Hyper-V socket, VM DNS `192.168.127.1` times out, credential helpers hang | Build and run inside the VM with public DNS, a Linux-only PATH and an empty `DOCKER_CONFIG` (6.4) |
+| `start-all.ps1`'s VM build failed on 2026-10-15 (`mkdir` usage, "`docker buildx build` requires 1 argument"): `wsl -d <distro> sh -c "..."` runs the command through the VM's login shell first, which expands `$DOCKER_CONFIG` and `$a` to empty strings | `wsl -d rancher-desktop --exec sh -c ...` (in `start-all.ps1` and 6.4) |

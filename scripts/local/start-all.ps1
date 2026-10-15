@@ -86,7 +86,8 @@ if ($Rebuild -or $missing) {
         Invoke-Native wsl @("-d", "rancher-desktop", "sh", "-c", "printf 'nameserver 8.8.8.8\nnameserver 1.1.1.1\n' > /etc/resolv.conf")
         $sh = "export PATH=/usr/sbin:/usr/bin:/sbin:/bin DOCKER_CONFIG=/tmp/dh-dockercfg; mkdir -p `$DOCKER_CONFIG; echo {} > `$DOCKER_CONFIG/config.json; " +
               "cd '$repo' || exit 1; for a in $($apps -join ' '); do docker build -f deploy/docker/Dockerfile --target `$a --build-arg VERSION=$Version -t datahub-`$a:$Version . || exit 1; done"
-        Invoke-Native wsl @("-d", "rancher-desktop", "sh", "-c", $sh)
+        # --exec: without it wsl runs the command through the VM's login shell, which expands $DOCKER_CONFIG and $a to "".
+        Invoke-Native wsl @("-d", "rancher-desktop", "--exec", "sh", "-c", $sh)
     }
     $built = $true
 }
