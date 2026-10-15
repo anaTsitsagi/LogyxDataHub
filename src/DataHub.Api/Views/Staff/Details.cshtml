@@ -1,0 +1,115 @@
+@model StaffDetailsModel
+@{
+    var i = Model.Invitation;
+    var (statusText, statusCss) = StaffText.Status(i);
+    ViewData["Title"] = i.CompanyName;
+    var period = Model.DataPeriod;
+    var from = period?.From.ToString("yyyy-MM-dd") ?? "";
+    var to = period?.To.ToString("yyyy-MM-dd") ?? "";
+    var reportsBase = $"/staff/reports/{i.TenantId}";
+}
+
+@if (Model.JustCreated is { } created)
+{
+    if (created.Replayed)
+    {
+        <p class="alert alert--ok" role="status">
+            This form was already submitted, so nothing new was sent. Below is the invitation it created;
+            <a href="/staff">open a new form</a> for another one.
+        </p>
+    }
+    else if (created.DeliveredChannels == NotificationChannels.None)
+    {
+        <p class="alert alert--bad" role="alert">The invitation was created, but the link could not be delivered. Check the API logs (Seq).</p>
+    }
+    else
+    {
+        <p class="alert alert--ok" role="status">
+            Invitation sent by @StaffText.Channels(created.DeliveredChannels).
+            @if (Model.Options.MailpitUrl is { } mailpit && created.DeliveredChannels.HasFlag(NotificationChannels.Email))
+            {
+                <a href="@mailpit" target="_blank" rel="noopener">Open Mailpit</a>
+            }
+        </p>
+    }
+}
+
+<section class="card">
+    <div class="actions" style="justify-content: space-between">
+        <div>
+            <h1>@i.CompanyName</h1>
+            <p class="muted">Company code <span class="mono">@i.CompanyCode</span></p>
+        </div>
+        <span class="status status--@statusCss">@statusText</span>
+    </div>
+
+    <dl style="margin-top: 16px">
+        <dt>Customer link</dt>
+        <dd>
+            <a href="@Model.Link" target="_blank" rel="noopener" class="mono">@Model.Link</a>
+            <div class="muted">Opens the customer portal as the customer would (they also need the company code and the one-time code).</div>
+        </dd>
+        <dt>Sent to</dt>
+        <dd>@StaffText.Channels(i.Channels): @(i.Email ?? "")@(i.Email is not null && i.Phone is not null ? ", " : "")@(i.Phone ?? "")</dd>
+        <dt>Invitation id</dt>
+        <dd class="mono">@i.InvitationId</dd>
+        <dt>Tenant id</dt>
+        <dd class="mono">@i.TenantId <span class="muted">(the <code>X-Tenant-Id</code> for the report API)</span></dd>
+        <dt>Created</dt>
+        <dd>@StaffText.Time(i.CreatedAt) by @(i.CreatedByClient ?? "–")</dd>
+        <dt>Link expires</dt>
+        <dd>@StaffText.Time(i.ExpiresAt)</dd>
+        <dt>Customer verified</dt>
+        <dd>@StaffText.Time(i.VerifiedAt)</dd>
+        <dt>Last processing</dt>
+        <dd>
+            @(i.LastJobStatus?.ToString() ?? "no upload yet")
+            @if (i.LastJobErrorCode is not null)
+            {
+                <span class="mono">(@i.LastJobErrorCode)</span>
+            }
+            @if (i.LastJobFinishedAt is not null)
+            {
+                <span class="muted">finished @StaffText.Time(i.LastJobFinishedAt)</span>
+            }
+        </dd>
+    </dl>
+
+    <div class="actions" style="margin-top: 16px">
+        <a class="btn btn--ghost" href="/staff/invitations/@i.InvitationId">Refresh status</a>
+        <a class="btn btn--ghost" href="/staff">New invitation</a>
+    </div>
+</section>
+
+<section class="card">
+    <h2>Reports</h2>
+    @if (period is null)
+    {
+        <p class="muted">Available once the company's upload has been processed. Refresh this page after the upload.</p>
+    }
+    else
+    {
+        <p class="muted">
+            The company's data covers <strong>@from</strong> to <strong>@to</strong>. Each report opens as JSON in a new tab,
+            the same data LOS gets from <code>GET /reports/*</code>.
+        </p>
+        <div class="reports">
+            <form class="report" method="get" action="@reportsBase/journal-entries" target="_blank">
+                <div class="field"><label>From</label><input type="date" name="fromDate" value="@from" required /></div>
+                <div class="field"><label>To</label><input type="date" name="toDate" value="@to" required /></div>
+                <div class="field"><label>Account (optional)</label><input name="accountNumber" placeholder="e.g. 1210" /></div>
+                <button type="submit" class="btn">Journal entries</button>
+            </form>
+            <form class="report" method="get" action="@reportsBase/turnover-register" target="_blank">
+                <div class="field"><label>From</label><input type="date" name="fromDate" value="@from" required /></div>
+                <div class="field"><label>To</label><input type="date" name="toDate" value="@to" required /></div>
+                <div class="field"><label>Account (optional)</label><input name="accountNumber" placeholder="e.g. 1210" /></div>
+                <button type="submit" class="btn">Turnover register</button>
+            </form>
+            <form class="report" method="get" action="@reportsBase/balance-sheet" target="_blank">
+                <div class="field"><label>As of</label><input type="date" name="toDate" value="@to" required /></div>
+                <button type="submit" class="btn">Balance sheet</button>
+            </form>
+        </div>
+    }
+</section>

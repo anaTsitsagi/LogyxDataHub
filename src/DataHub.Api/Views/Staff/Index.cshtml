@@ -1,0 +1,93 @@
+@model StaffIndexModel
+@{
+    ViewData["Title"] = "New invitation";
+    var f = Model.Form;
+}
+
+<section class="card">
+    <h1>Invite a company to upload its ORIS data</h1>
+    <p class="muted">
+        Does what TBC LOS does through <code>POST /invitations</code>: the customer gets a link by email and/or SMS,
+        verifies with a one-time code and uploads the ORIS ZIP.
+        @if (Model.Options.MailpitUrl is { } mailpit)
+        {
+            <text>Emails arrive in <a href="@mailpit" target="_blank" rel="noopener">Mailpit</a>.</text>
+        }
+        @if (Model.Options.SmsOutboxHint is { } sms)
+        {
+            <text>SMS messages are files in <code>@sms</code>.</text>
+        }
+    </p>
+
+    @if (Model.Error is not null)
+    {
+        <p class="alert alert--bad" role="alert">@Model.Error</p>
+    }
+
+    <form method="post" asp-controller="Staff" asp-action="Create" class="grid" style="margin-top: 16px">
+        <input type="hidden" name="RequestKey" value="@f.RequestKey" />
+        <div class="field">
+            <label for="CompanyCode">Company code (ID, 9 or 11 digits)</label>
+            <input id="CompanyCode" name="CompanyCode" value="@f.CompanyCode" inputmode="numeric" autocomplete="off" required />
+        </div>
+        <div class="field">
+            <label for="CompanyName">Company name</label>
+            <input id="CompanyName" name="CompanyName" value="@f.CompanyName" maxlength="300" required />
+        </div>
+        <div class="field">
+            <label for="Email">Email</label>
+            <input id="Email" name="Email" type="email" value="@f.Email" placeholder="owner@example.ge" />
+        </div>
+        <div class="field">
+            <label for="Phone">Mobile phone</label>
+            <input id="Phone" name="Phone" type="tel" value="@f.Phone" placeholder="+995 555 12 34 56" />
+        </div>
+        <div class="field field--wide">
+            <span style="font-weight: 600; font-size: .9rem">Send the link by</span>
+            <div class="checks">
+                <label><input type="checkbox" name="SendEmail" value="true" @(f.SendEmail ? "checked" : "") /> Email</label>
+                <label><input type="checkbox" name="SendSms" value="true" @(f.SendSms ? "checked" : "") /> SMS</label>
+                <input type="hidden" name="SendEmail" value="false" />
+                <input type="hidden" name="SendSms" value="false" />
+            </div>
+        </div>
+        <div class="field--wide actions">
+            <button type="submit" class="btn">Send invitation</button>
+        </div>
+    </form>
+</section>
+
+<section class="card">
+    <div class="actions" style="justify-content: space-between; margin-bottom: 8px">
+        <h2 style="margin: 0">Recent invitations</h2>
+        <a class="btn btn--ghost" href="/staff">Refresh</a>
+    </div>
+    @if (Model.Recent.Count == 0)
+    {
+        <p class="muted">No invitations yet.</p>
+    }
+    else
+    {
+        <div class="table-scroll">
+            <table>
+                <thead>
+                    <tr><th>Created</th><th>Company</th><th>Code</th><th>Sent by</th><th>Status</th><th></th></tr>
+                </thead>
+                <tbody>
+                    @foreach (var i in Model.Recent)
+                    {
+                        var (text, css) = StaffText.Status(i);
+                        <tr>
+                            <td>@StaffText.Time(i.CreatedAt)</td>
+                            <td>@i.CompanyName</td>
+                            <td class="mono">@i.CompanyCode</td>
+                            <td>@(i.CreatedByClient ?? "–")</td>
+                            <td><span class="status status--@css">@text</span></td>
+                            <td><a href="/staff/invitations/@i.InvitationId">Details</a></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</section>

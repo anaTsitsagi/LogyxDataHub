@@ -46,6 +46,24 @@ public sealed record InvitationStatusResult(
     string? LastJobErrorCode,
     DateTimeOffset? LastJobFinishedAt);
 
+/// <summary>An invitation as the bank's staff portal shows it: across all API clients, with the company and contacts.</summary>
+public sealed record InvitationSummary(
+    Guid InvitationId,
+    Guid TenantId,
+    string CompanyCode,
+    string CompanyName,
+    string? Email,
+    string? Phone,
+    NotificationChannels Channels,
+    InvitationStatus Status,
+    string? CreatedByClient,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset ExpiresAt,
+    DateTimeOffset? VerifiedAt,
+    JobStatus? LastJobStatus,
+    string? LastJobErrorCode,
+    DateTimeOffset? LastJobFinishedAt);
+
 public sealed partial class InvitationService(
     IDataHubDb db,
     Secrets secrets,
@@ -126,6 +144,35 @@ public sealed partial class InvitationService(
         return new InvitationStatusResult(invitation.Id, invitation.Company.TenantId, status, invitation.CreatedAt,
             invitation.ExpiresAt, invitation.VerifiedAt, job?.Status, job?.ErrorCode, job?.FinishedAt);
     }
+
+    /// <summary>The latest invitations of every API client, newest first (staff portal).</summary>
+    public async Task<IReadOnlyList<InvitationSummary>> ListRecentAsync(int take, CancellationToken ct)
+    {
+        var rows = await Summaries(db.Invitations.OrderByDescending(i => i.CreatedAt).Take(take)).ToListAsync(ct);
+        return [.. rows.Select(WithExpiry)];
+    }
+
+    /// <summary>One invitation of any API client (staff portal).</summary>
+    public async Task<InvitationSummary> GetSummaryAsync(Guid invitationId, CancellationToken ct)
+    {
+        var row = await Summaries(db.Invitations.Where(i => i.Id == invitationId)).SingleOrDefaultAsync(ct)
+            ?? throw new DataHubException(ErrorKind.NotFound, "INVITATION_NOT_FOUND", "Invitation not found.");
+        return WithExpiry(row);
+    }
+
+    private IQueryable<InvitationSummary> Summaries(IQueryable<Invitation> invitations) =>
+        from i in invitations.AsNoTracking()
+        let job = (from u in db.Uploads
+                   join j in db.ProcessingJobs on u.Id equals j.UploadId
+                   where u.InvitationId == i.Id
+                   orderby j.QueuedAt descending
+                   select j).FirstOrDefault()
+        select new InvitationSummary(i.Id, i.Company.TenantId, i.Company.CompanyCode, i.Company.Name, i.Email, i.Phone,
+            i.Channels, i.Status, i.CreatedByClient, i.CreatedAt, i.ExpiresAt, i.VerifiedAt,
+            job == null ? (JobStatus?)null : job.Status, job == null ? null : job.ErrorCode, job == null ? null : job.FinishedAt);
+
+    private InvitationSummary WithExpiry(InvitationSummary s) =>
+        s.Status is InvitationStatus.Sent && s.ExpiresAt <= clock.GetUtcNow() ? s with { Status = InvitationStatus.Expired } : s;
 
     public string LinkFor(Guid invitationId) =>
         $"{options.Value.PortalBaseUrl.TrimEnd('/')}/i/{secrets.InvitationToken(invitationId)}";
